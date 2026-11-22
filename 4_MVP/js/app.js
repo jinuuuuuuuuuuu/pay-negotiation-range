@@ -1,4 +1,4 @@
-// 화면 로직. 계산은 모두 engine.js(formula.py와 일치 테스트로 묶음)가 하고, 여기서는 보여 주기만 한다.
+﻿// 화면 로직. 계산은 모두 engine.js(formula.py와 일치 테스트로 묶음)가 하고, 여기서는 보여 주기만 한다.
 import * as E from './engine.js';
 import { icon } from './icons.js';
 
@@ -29,6 +29,8 @@ const man = (x) => (isNum(x) ? `${Math.round(x / 1e4).toLocaleString('ko-KR')}�
 const man0 = (x) => (isNum(x) ? `${Math.round(x / 1e4).toLocaleString('ko-KR')}만` : '—');
 // formula.py가 만든 문구의 '업종'을 화면에서는 '업계'로 (계산·결과 파일은 그대로)
 const u = (s) => String(s ?? '').replace(/업종/g, '업계');
+// 불황 이름의 근거 수준 꼬리표는 화면에서만 뗀다 (계산 키는 그대로)
+const scnLabel = (s) => u(s).replace(/\s*\((일부 근거|원인 미확인)\)/g, '');
 
 const CAP_LABEL = {
   '여력 있음': '업계보다 높음',
@@ -93,7 +95,7 @@ function setTop({ title = '', back = null, dark = false, about = true } = {}) {
   $top.innerHTML = `
     ${back ? `<a class="icon-btn" href="${back}" aria-label="뒤로">${icon('chevron-left', 24)}</a>` : '<span class="spacer"></span>'}
     <h1>${esc(title)}</h1>
-    ${about ? `<a class="icon-btn" href="#/about" aria-label="근거와 한계">${icon('info', 22)}</a>` : '<span class="spacer"></span>'}`;
+    ${about ? `<a class="icon-btn" href="#/about" aria-label="계산 근거">${icon('info', 22)}</a>` : '<span class="spacer"></span>'}`;
   document.querySelector('meta[name="theme-color"]').content = dark ? '#1F1F1F' : '#F3F3F2';
 }
 function setTabs(id, active) {
@@ -114,116 +116,325 @@ function niceMax(v) {
 }
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
-// 업계 대비 임금 위치: x = 회사(1인당 급여 높은 순), y = 1인당 급여
+// 업계 대비 임금 위치: x = 회사(1인당 급여 낮은 순 → 높은 순), y = 1인당 급여
+// 배경 음영 = 판정 기준 자리. P(우리보다 낮은 비교 회사 비율) ≤ 0.25면 임금 낮음, ≥ 0.75면 임금 높음(formula.py HIGH_P·LOW_P).
+// 오름차순에서 i번째 칸에 서면 P = i ÷ 비교 회사 수이므로, 왼쪽·오른쪽 음영 칸이 곧 판정 구간이다.
+const LOW_P = 0.25, HIGH_P = 0.75;
 function wageChart(f) {
   const peers = peersOf(f.id).filter((p) => isNum(p.w));
-  if (!peers.length || !isNum(f.w)) return { svg: '<p class="note">비교할 업계 회사가 없어 그래프를 그릴 수 없습니다.</p>', rank: null, n: 0 };
-  const items = [...peers.map((p) => ({ w: p.w, us: false })), { w: f.w, us: true }].sort((a, b) => b.w - a.w);
-  const n = items.length, rank = items.findIndex((x) => x.us) + 1;
-  const H = 210, T = 30, B = 26, L = 2, R = 2, ph = H - T - B;
-  const max = niceMax(items[0].w * 1.04);
-  const step = (W - L - R) / n, bw = Math.max(step * 0.66, 4);
+  if (!peers.length || !isNum(f.w)) return { svg: '<p class="note">비교할 업계 회사가 없어 그래프를 그릴 수 없습니다.</p>', rank: null, n: 0, items: [] };
+  const items = [...peers.map((p) => ({ w: p.w, name: p.name, us: false })), { w: f.w, name: f.name, us: true }].sort((a, b) => a.w - b.w);
+  const n = items.length, k = n - 1, ui = items.findIndex((x) => x.us), rank = n - ui;  // rank: 높은 순 순위
+  const H = 236, T = 48, B = 40, L = 2, R = 2, ph = H - T - B, base = T + ph;
+  const max = niceMax(items[n - 1].w * 1.04);
+  const step = (W - L - R) / n, bw = clamp(step * 0.42, 5, 9);  // 키트 막대: 가늘고 끝이 둥근 기둥
+  const sx = (i) => L + i * step;
   const py = (v) => T + ph * (1 - v / max);
   const med = isNum(f.peer_median_10k) ? f.peer_median_10k * 1e4 : NaN;
-  let bars = '';
+
+  // 판정 구간 음영 (하위 25% / 상위 25%)
+  const loEnd = Math.floor(LOW_P * k) + 1, hiStart = Math.ceil(HIGH_P * k);
+  const zone = (a, b, lab, anchor) => `<rect x="${sx(a).toFixed(1)}" y="${T - 20}" width="${(sx(b) - sx(a)).toFixed(1)}" height="${(base - T + 20).toFixed(1)}" class="zone-q"/>`
+    + tx(anchor === 'start' ? sx(a) + 5 : sx(b) - 5, T - 7, lab, 'cl-z', anchor);
+  const zones = zone(0, loEnd, '하위 25%', 'start') + zone(hiStart, n, '상위 25%', 'end');
+
+  let bars = '', hits = '';
+  // 우리 회사 칸 강조 띠 (그래프 위 끝 ~ 축)
+  const usLate = `style="--d:${Math.round(ui * Math.min(22, 440 / n)) + 380}ms"`;
+  const usBand = `<rect x="${(sx(ui) + 1).toFixed(1)}" y="${T - 2}" width="${(step - 2).toFixed(1)}" height="${(base - T + 2).toFixed(1)}" rx="${((step - 2) / 2).toFixed(1)}" class="col-us" ${usLate}/>`;
+  // 등장 움직임: 막대가 왼쪽부터 차례로 자람(전체 지연 최대 440ms). 우리 배지는 우리 막대가 다 자랄 때.
+  const lag = Math.min(22, 440 / n);
   items.forEach((it, i) => {
-    const x = L + i * step + (step - bw) / 2, y = py(it.w);
-    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${(T + ph - y).toFixed(1)}" rx="2.5" class="${it.us ? 'bar-us' : 'bar'}"/>`;
+    const w = it.us ? bw + 2 : bw, x = sx(i) + (step - w) / 2, y = py(it.w);
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${(base - y).toFixed(1)}" rx="${(w / 2).toFixed(1)}" class="${it.us ? 'bar-us' : 'bar'}" data-i="${i}" style="--d:${Math.round(i * lag)}ms"/>`;
+    hits += `<rect x="${sx(i).toFixed(1)}" y="${T - 20}" width="${step.toFixed(1)}" height="${(base - T + 20).toFixed(1)}" class="hit" data-i="${i}"/>`;
   });
-  const ui = rank - 1, ux = L + ui * step + step / 2, uy = py(f.w);
+
   let medEl = '';
   if (isNum(med)) {
-    const my = py(med), leftSide = ui > n / 2;
-    medEl = `<line x1="${L}" x2="${W - R}" y1="${my.toFixed(1)}" y2="${my.toFixed(1)}" class="ln-ind"/>${tx(leftSide ? L + 2 : W - R - 2, my - 6, `업계 중앙 ${man0(med)}`, 'cl-m', leftSide ? 'start' : 'end')}`;
+    const my = py(med);
+    medEl = `<line x1="${L}" x2="${W - R}" y1="${my.toFixed(1)}" y2="${my.toFixed(1)}" class="ln-ind"/>`
+      + `<text x="${(L + 4).toFixed(1)}" y="${(my - 6).toFixed(1)}" class="cl-m halo" text-anchor="start">${esc(`업계 중앙 ${man0(med)}`)}</text>`;
   }
-  const lab = tx(clamp(ux, 40, W - 40), uy - 9, `우리 ${man0(f.w)}`, 'cl-b', 'middle');
-  const axis = `<line x1="${L}" x2="${W - R}" y1="${T + ph}" y2="${T + ph}" class="ax"/>${tx(L, H - 6, '← 급여 높은 회사', 'cl')}${tx(W - R, H - 6, '급여 낮은 회사 →', 'cl', 'end')}`;
+  // 우리 막대 위 먹색 알약 이름표 (키트·참고 이미지의 값 배지)
+  const ux = sx(ui) + step / 2, uy = py(f.w);
+  const labText = `우리 ${man0(f.w)}`;
+  const pw = 16 + [...labText].reduce((s, c) => s + (/[가-힣]/.test(c) ? 11.5 : c === ' ' ? 3 : 6.6), 0), ph2 = 20;
+  const px = clamp(ux - pw / 2, L, W - R - pw);
+  let pyTop = uy - ph2 - 6;
+  // 중앙선 라벨(왼쪽 위, 폭 약 100)과 겹치면 한 줄 위로
+  if (isNum(med) && px < L + 108 && pyTop + ph2 > py(med) - 18 && pyTop < py(med) + 2) pyTop = py(med) - 20 - ph2;
+  pyTop = Math.max(pyTop, T - 32);
+  const lab = `<g class="pill-us" ${usLate}><rect x="${px.toFixed(1)}" y="${pyTop.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph2}" rx="${ph2 / 2}"/>`
+    + `<text x="${(px + pw / 2).toFixed(1)}" y="${(pyTop + 14).toFixed(1)}" text-anchor="middle">${esc(labText)}</text></g>`;
+
+  // 양 끝 값(우리 막대가 끝에 있으면 위 라벨과 겹치므로 생략)
+  const ends = (ui === 0 ? '' : tx(sx(0), base + 15, man0(items[0].w), 'cl'))
+    + (ui === n - 1 ? '' : tx(sx(n), base + 15, man0(items[n - 1].w), 'cl', 'end'));
+  const axis = `<line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" class="ax"/>${ends}${tx(W / 2, H - 4, '← 급여 낮음 · 높음 →', 'cl', 'middle')}`;
   return {
-    svg: `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="비교군 ${n - 1}곳과 우리 회사의 1인당 급여, 높은 순. 우리 회사 ${n}곳 중 ${rank}위">${bars}${medEl}${axis}${lab}</svg>`,
-    rank, n,
+    svg: `<div class="chart-wrap" data-wage>
+      <svg class="chart wage" viewBox="0 0 ${W} ${H}" tabindex="0" role="img" aria-label="비교군 ${k}곳과 우리 회사의 1인당 급여, 낮은 순에서 높은 순. 우리 회사 ${n}곳 중 ${rank}위. 막대를 누르면 회사 이름이 나옵니다. 화살표 키로 옮길 수 있습니다.">${zones}${usBand}${medEl}${bars}${axis}${lab}${hits}</svg>
+      <div class="chart-tip" role="status" aria-live="polite" hidden></div>
+    </div>`,
+    rank, n, items,
   };
 }
 
+// ---------------------------------------------------------------- 움직임 공통
+// morph: 다시 그릴 때 통째로 바꾸지 않고 바뀐 곳만 고친다. 그래프 좌표는 미끄러지고(tween),
+// 바뀐 숫자 칸은 잠깐 노랗게 빛나고(bump), 판정 배지는 톡 튄다. 모양이 달라지면 통째로 바꾸고 살짝 떠오르게.
+const NUM_ATTR = new Set(['x', 'y', 'cx', 'cy', 'r', 'x1', 'x2', 'y1', 'y2', 'width', 'height', 'rx']);
+const ownTexts = (el) => [...el.childNodes].filter((n) => n.nodeType === 3);
+const shapeOf = (root) => [ownTexts(root).length, ...[...root.querySelectorAll('*')].map((e) => `${e.tagName}${ownTexts(e).length}`)].join('|');
+function morph(box, html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const nw = tpl.content;
+  // 모양이 다르면 그대로 바꿔 끼운다(흐려짐 효과 없음 — 입력 중 깜빡임 방지)
+  if (!box.firstElementChild || shapeOf(box) !== shapeOf(nw)) { box.replaceChildren(nw); return; }
+  const oldEls = [...box.querySelectorAll('*')], newEls = [...nw.querySelectorAll('*')];
+  const syncText = (o, n) => {
+    const a = ownTexts(o), b = ownTexts(n);
+    let changed = false;
+    a.forEach((t, i) => { if (t.nodeValue !== b[i].nodeValue) { t.nodeValue = b[i].nodeValue; if (b[i].nodeValue.trim()) changed = true; } });
+    return changed;
+  };
+  syncText(box, nw);
+  const tw = [];
+  oldEls.forEach((o, i) => {
+    const n = newEls[i], svg = o instanceof SVGElement;
+    let clsChanged = false;
+    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
+    for (const a of [...n.attributes]) {
+      const ov = o.getAttribute(a.name);
+      if (ov === a.value) continue;
+      if (svg && NUM_ATTR.has(a.name) && ov !== null && Number.isFinite(+ov) && Number.isFinite(+a.value)) tw.push([o, a.name, +ov, a.value]);
+      else { o.setAttribute(a.name, a.value); if (a.name === 'class') clsChanged = true; }
+    }
+    syncText(o, n);
+    if (!svg && clsChanged && o.classList.contains('badge')) pop(o);   // 판정이 바뀔 때만 톡 (숫자 반짝임은 없앰)
+  });
+  if (tw.length) tween(tw, 300);
+}
+function tween(list, ms) {
+  if (REDUCED()) { list.forEach(([el, a, , to]) => el.setAttribute(a, to)); return; }
+  const t0 = performance.now(), ease = (t) => 1 - (1 - t) ** 3;
+  list.forEach(([el, a]) => { (el._tw ||= {})[a] = t0; });
+  const step = (now) => {
+    const t = Math.min((now - t0) / ms, 1), k = ease(t);
+    list.forEach(([el, a, from, to]) => { if (el._tw[a] === t0) el.setAttribute(a, t === 1 ? to : (from + (+to - from) * k).toFixed(2)); });
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function pop(el) {
+  if (REDUCED() || el._popAt > performance.now() - 400) return;
+  el._popAt = performance.now();
+  el.animate([{ transform: 'scale(0.82)' }, { transform: 'scale(1.06)', offset: 0.55 }, { transform: 'scale(1)' }], { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+}
+// 처음 그릴 때만 등장 움직임 클래스(enter)를 붙였다가 뗀다 → 이후 다시 그려도 재생되지 않음
+function enterOnce(box, cls = 'enter', ms = 1500) {
+  if (box.dataset.entered) return;
+  box.dataset.entered = '1';
+  box.classList.add(cls);
+  setTimeout(() => box.classList.remove(cls), ms);
+}
+
+// 등장 움직임: 그래프가 화면에 들어올 때 한 번. 기본 상태는 '보이는 상태'라 스크립트가 실패해도 화면이 비지 않는다.
+const REDUCED = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function playWageEntrance(wrap) {
+  if (REDUCED() || !('IntersectionObserver' in window)) return;
+  const svg = wrap.querySelector('svg');
+  const num = wrap.closest('.panel')?.querySelector('.big-num[data-count]');
+  svg.classList.add('pre');                       // 막대 0 높이에서 대기 (인쇄 때는 CSS가 끝 상태로)
+  const io = new IntersectionObserver((ents) => {
+    if (!ents.some((e) => e.isIntersecting)) return;
+    io.disconnect();
+    void svg.getBoundingClientRect();             // 대기 상태를 한 번 그린 뒤 시작
+    requestAnimationFrame(() => { svg.classList.remove('pre'); svg.classList.add('play'); });
+    if (num) countUp(num, Number(num.dataset.count), 700);
+  }, { threshold: 0.35 });
+  io.observe(svg);
+}
+function countUp(el, to, ms, fmt = (v) => Math.round(v).toLocaleString('ko-KR')) {
+  if (REDUCED()) return;
+  const t0 = performance.now(), ease = (t) => 1 - (1 - t) ** 4;
+  const tick = (now) => {
+    const t = Math.min((now - t0) / ms, 1);
+    el.textContent = fmt(to * ease(t));
+    if (t < 1 && el.isConnected) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// 임금 막대 탭·호버·화살표 키 → 회사명과 급여
+function bindWageChart(root, items) {
+  const wrap = root.querySelector('[data-wage]');
+  if (!wrap || !items.length) return;
+  const svg = wrap.querySelector('svg'), tip = wrap.querySelector('.chart-tip');
+  const bars = [...svg.querySelectorAll('rect[class^="bar"]')];
+  let cur = -1;
+  const show = (i) => {
+    if (i < 0 || i >= items.length) return;
+    cur = i;
+    bars.forEach((b) => b.classList.toggle('sel', Number(b.dataset.i) === i));
+    const it = items[i], r = items.length - i;
+    tip.innerHTML = `<strong>${esc(it.us ? `${it.name} (우리)` : it.name)}</strong><span class="num">${man(it.w)} · ${r}위</span>`;
+    tip.hidden = false;
+    const box = svg.getBoundingClientRect(), bar = bars[i].getBoundingClientRect();
+    const cx = bar.left + bar.width / 2 - box.left;
+    const tw = tip.offsetWidth;
+    tip.style.left = `${clamp(cx - tw / 2, 0, box.width - tw)}px`;
+    tip.style.top = `${Math.max(bar.top - box.top - tip.offsetHeight - 8, 0)}px`;
+  };
+  const hide = () => { cur = -1; tip.hidden = true; bars.forEach((b) => b.classList.remove('sel')); };
+  playWageEntrance(wrap);
+  const at = (e) => { const t = e.target.closest('[data-i]'); return t ? Number(t.dataset.i) : -1; };
+  svg.addEventListener('pointerdown', (e) => { const i = at(e); if (i >= 0) { if (i === cur && e.pointerType !== 'mouse') hide(); else show(i); } });
+  svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') { const i = at(e); if (i >= 0 && i !== cur) show(i); } });
+  svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });
+  svg.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const start = cur < 0 ? items.findIndex((x) => x.us) : cur;
+      show(clamp(start + (e.key === 'ArrowRight' ? 1 : -1), 0, items.length - 1));
+    } else if (e.key === 'Escape') hide();
+  });
+  svg.addEventListener('blur', hide);
+}
+
+// 임금 위치 머리: 결론 문장 + 순위 배지 + 보조 줄
+function wageHead(f, wc) {
+  if (!wc.rank) return '';
+  const d = isNum(f.wage_10k) && isNum(f.peer_median_10k) ? Math.round(f.wage_10k - f.peer_median_10k) : NaN;
+  // 키트 그래프 카드 머리: 작은 라벨 + 큰 숫자 + 작은 단위
+  const claim = !isNum(d) ? '<span class="big-unit">업계 중앙과 비교할 수 없음</span>'
+    : d === 0 ? '<span class="big-num">같음</span>'
+      : `<span class="big-num" data-count="${Math.abs(d)}">${Math.abs(d).toLocaleString('ko-KR')}</span><span class="big-unit">만 원 ${d > 0 ? '높음' : '낮음'}</span>`;
+  const share = wc.rank / wc.n;
+  const top = share <= 0.5 ? `상위 ${Math.max(1, Math.round(share * 100))}%` : `하위 ${Math.max(1, Math.round((wc.n - wc.rank + 1) / wc.n * 100))}%`;
+  const warn = f.peer_warn
+    ? `<button type="button" class="tip-btn" aria-expanded="false" aria-controls="wage-warn" aria-label="비교군 주의 보기">${icon('info', 18)}</button>` : '';
+  return `<div class="wage-head">
+      <div class="card-top"><span class="cap">업계 중앙보다</span>${warn}</div>
+      <p class="wage-claim num" aria-hidden="true">${claim}</p>
+      <p class="sr-only">업계 중앙보다 ${isNum(d) ? (d === 0 ? '같음' : `${Math.abs(d).toLocaleString('ko-KR')}만 원 ${d > 0 ? '높음' : '낮음'}`) : '비교할 수 없음'}</p>
+      ${f.peer_warn ? `<div class="wage-warn" id="wage-warn" hidden>${facts([['주의', esc(u(f.peer_warn))], ['기준', '비교군 매출 중앙값이 우리의 1/3 미만 또는 3배 초과']])}</div>` : ''}
+      <p class="wage-meta"><span class="badge rank num">${wc.n}곳 중 ${wc.rank}위</span><span class="num">${top} · ${esc(f.wage_pos || '')}</span></p>
+    </div>`;
+}
+
 // 협상 구간: x = 기본급 인상률, y = 인상 비용 ÷ 영업이익(3년 평균 기준, 기본급 인상분)
+// 협상 구간 눈금자: 기본급 인상률 한 줄을 3칸(업계보다 뒤처짐 / 협상 구간 / 업계보다 부담 큼)으로 칠하고,
+// 경계 위에 하한·상한 알약(근거 한 줄), 아래에 노조안·회사안 핀. 값이 바뀌어도 요소 구성은 같게 유지(입력 중 깜빡임 방지).
 function rangeChart(f, rng, offers = null, compact = false) {
-  const cb = CTX.C.OVERHEAD_C_BASE, showMax = CTX.C.RANGE_UPPER_SHOW_MAX;
+  const showMax = CTX.C.RANGE_UPPER_SHOW_MAX;
   const g = rng['하한'], up = rng['상한'];
   if (!isNum(g)) return '';
-  const ops = f.S_avg > 0 ? f.OP_avg / f.S_avg : NaN, pops = f.peer_ops;
-  const hasUs = isNum(ops) && ops > 0, hasInd = isNum(pops) && pops > 0;
-  const yUs = (r) => (r * (1 + cb) / ops) * 100;
-  const yInd = hasInd ? (g * (1 + cb) / pops) * 100 : NaN;
-  const xc = [0.06, g * 1.6];
-  if (isNum(up)) xc.push(Math.min(up, 0.12) * 1.2);
+  const hasUp = isNum(up), okRange = hasUp && up >= g, over = hasUp && up > showMax;
+  const xc = [0.1, g * 1.5];
+  if (hasUp && !over) xc.push(up * 1.25);
   if (offers) xc.push(offers.union * 1.15, offers.company * 1.15);
-  const M = Math.min(Math.ceil(Math.max(...xc) * 100) / 100, 0.3);
-  const yc = [3];
-  if (hasInd) yc.push(yInd * 1.45);
-  if (hasUs) yc.push(yUs(isNum(up) && up > 0 ? Math.min(up, M) : g) * 1.25);
-  if (hasUs && offers) yc.push(yUs(Math.max(offers.union, offers.company)) * 1.1);
-  const yMax = niceMax(Math.min(Math.max(...yc), 150));
-  const H = compact ? 214 : 236, T = 34, B = 30, L = 34, R = 10, pw = W - L - R, ph = H - T - B;
-  const px = (x) => L + (clamp(x, 0, M) / M) * pw;
-  const py = (y) => T + ph * (1 - clamp(y, 0, yMax) / yMax);
-  let s = `<defs><clipPath id="clipR${compact ? 'c' : 'f'}"><rect x="${L}" y="${T}" width="${pw}" height="${ph}"/></clipPath></defs>`;
-  // 격자와 y 눈금
-  for (const v of [0, yMax / 2, yMax]) {
-    s += `<line x1="${L}" x2="${W - R}" y1="${py(v).toFixed(1)}" y2="${py(v).toFixed(1)}" class="${v === 0 ? 'ax' : 'grid'}"/>`;
-    s += tx(L - 5, py(v) + 4, `${+v.toFixed(1)}%`, 'cl', 'end');
+  const M = Math.min(Math.ceil(Math.max(...xc) * 100) / 100, 0.2);
+  const L = 12, R = 12, bw = W - L - R;
+  const px = (x) => L + (clamp(x, 0, M) / M) * bw;
+  const top = 58, bh = 34, H = compact ? top + bh + 34 : top + bh + 92;
+  const xg = px(g), xu = hasUp ? (over ? W - R : px(up)) : null;
+  // 칸 3개 (없는 칸은 너비 0으로 두어 모양을 유지)
+  const z = [];
+  if (okRange) z.push([L, xg, 'rz-lo', '업계보다 뒤처짐'], [xg, xu, 'rz-in', '협상 구간'], [xu, W - R, 'rz-hi', '업계보다 부담 큼']);
+  else if (hasUp) z.push([L, xg, 'rz-lo', '업계보다 뒤처짐'], [xg, xg, 'rz-in', ''], [xg, W - R, 'rz-hi', '업계보다 부담 큼']);
+  else z.push([L, xg, 'rz-lo', '업계보다 뒤처짐'], [xg, W - R, 'rz-in hold', '하한 이상'], [W - R, W - R, 'rz-hi', '']);
+  let s = `<defs><clipPath id="rb${compact ? 'c' : 'f'}"><rect x="${L}" y="${top}" width="${bw}" height="${bh}" rx="10"/></clipPath></defs><g clip-path="url(#rb${compact ? 'c' : 'f'})">`;
+  z.forEach(([a, b, cls]) => { s += `<rect x="${a.toFixed(1)}" y="${top}" width="${Math.max(b - a, 0).toFixed(1)}" height="${bh}" class="${cls}"/>`; });
+  s += '</g>';
+  z.forEach(([a, b, , lab]) => { const w = b - a; s += `<text x="${((a + b) / 2).toFixed(1)}" y="${top + bh / 2 + 4.5}" class="rz-t${w < tw0(lab) + 10 || !lab ? ' off' : ''}" text-anchor="middle">${esc(lab)}</text>`; });
+  // 경계 표시선 + 알약(값) + 근거 한 줄
+  const gLab = `하한 ${pct(g)}`, uLab = hasUp ? (over ? `상한 ${Math.round(showMax * 100)}% 초과` : `상한 ${pct(up)}`) : '';
+  const wG = tw1(gLab), wU = hasUp ? tw1(uLab) : 0;
+  let lG = clamp(xg - wG / 2, 2, W - 2 - wG), lU = hasUp ? clamp(xu - wU / 2, 2, W - 2 - wU) : 0;
+  if (hasUp) {
+    const gFirst = xg <= xu, [w1, w2] = gFirst ? [wG, wU] : [wU, wG];
+    let l1 = gFirst ? lG : lU, l2 = gFirst ? lU : lG;
+    if (l1 + w1 + 8 > l2) {
+      const mid = (xg + xu) / 2;
+      l1 = mid - (w1 + w2 + 8) / 2; l2 = l1 + w1 + 8;
+      if (l1 < 2) { l2 += 2 - l1; l1 = 2; }
+      if (l2 + w2 > W - 2) { l1 -= l2 + w2 - (W - 2); l2 = W - 2 - w2; }
+    }
+    if (gFirst) { lG = l1; lU = l2; } else { lU = l1; lG = l2; }
   }
-  // 협상 구간 면
-  if (isNum(up)) {
-    const a = Math.min(g, up), b = Math.max(g, up);
-    s += `<rect x="${px(a).toFixed(1)}" y="${T}" width="${Math.max(px(b) - px(a), 1.5).toFixed(1)}" height="${ph}" class="${up >= g ? 'zone' : 'zone-bad'}"/>`;
+  const mark = (x, l, w, lab, why, cls) => `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${top - 8}" y2="${top + bh}" class="rz-mk ${cls}"/>`
+    + `<g class="rz-pill ${cls}"><rect x="${l.toFixed(1)}" y="2" width="${w.toFixed(1)}" height="24" rx="12"/><text x="${(l + w / 2).toFixed(1)}" y="18.5" text-anchor="middle">${esc(lab)}</text></g>`
+    + `<text x="${(l + w / 2).toFixed(1)}" y="${top - 14}" class="rz-why" text-anchor="middle">${esc(why)}</text>`;
+  s += mark(xg, lG, wG, gLab, '업계 인상률', 'lo');
+  if (hasUp) s += mark(xu, lU, wU, uLab, '업계와 같은 부담', 'up');
+  // 눈금
+  const tickY = top + bh + 16;
+  for (let v = 0; v <= M + 1e-9; v += 0.01) {
+    const x = px(v), lab = Math.round(v * 100) % 5 === 0 || v === 0;
+    s += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${top + bh + 2}" y2="${top + bh + (lab ? 7 : 4)}" class="rz-tk"/>`;
+    if (lab) s += tx(clamp(x, L + 6, W - R - 8), tickY, `${Math.round(v * 100)}%`, 'cl', v === 0 ? 'start' : 'middle');
   }
-  // 업계 부담선
-  if (hasInd) {
-    s += `<line x1="${L}" x2="${W - R}" y1="${py(yInd).toFixed(1)}" y2="${py(yInd).toFixed(1)}" class="ln-ind"/>`;
-    s += tx(L + 4, py(yInd) - 6, `업계 부담 ${yInd.toFixed(1)}%`, 'cl-m', 'start');
-  }
-  // 우리 회사 부담선 (이름은 범례에서)
-  if (hasUs) {
-    s += `<line x1="${px(0)}" y1="${py(0)}" x2="${px(M).toFixed(1)}" y2="${(T + ph * (1 - yUs(M) / yMax)).toFixed(1)}" class="ln-us" clip-path="url(#clipR${compact ? 'c' : 'f'})"/>`;
-  }
-  // 하한·상한 세로선과 이름표
-  const xg = px(g);
-  s += `<line x1="${xg.toFixed(1)}" x2="${xg.toFixed(1)}" y1="${T}" y2="${T + ph}" class="vl"/>`;
-  let upX = null, upLab = '';
-  if (isNum(up)) {
-    if (up > M || up > showMax) { upX = up > M ? W - R : px(up); upLab = `상한 ${Math.round(showMax * 100)}% 초과`; } else { upX = px(up); upLab = `상한 ${pct(up)}`; }
-    s += `<line x1="${upX.toFixed(1)}" x2="${upX.toFixed(1)}" y1="${T}" y2="${T + ph}" class="vl dash"/>`;
-  }
-  const near = upX !== null && Math.abs(upX - xg) < 64;
-  const gLeft = upX !== null && xg < upX;
-  s += tx(clamp(xg, L + 20, W - R - 20), T - 10, `하한 ${pct(g)}`, 'cl-b', near ? (gLeft ? 'end' : 'start') : 'middle');
-  if (upX !== null) s += tx(clamp(upX, L + 20, W - R - 2), T - 10, upLab, 'cl-b', near ? (gLeft ? 'start' : 'end') : (upX > W - R - 40 ? 'end' : 'middle'));
-  // 교점 (상한이 계산된 경우)
-  if (hasUs && hasInd && rng['상한 상태'] === '계산' && up <= M) s += `<circle cx="${px(up).toFixed(1)}" cy="${py(yInd).toFixed(1)}" r="4" class="pt-x"/>`;
-  // 노조안·회사안 점
+  // 노조안·회사안 핀 (가까우면 위아래로 엇갈림)
   if (offers && !compact) {
-    const pts = [['회사', offers.company, 'pt-co'], ['노조', offers.union, 'pt-un']];
-    const xs = pts.map(([, v]) => px(v));
-    const close = Math.abs(xs[0] - xs[1]) < 56;
-    pts.forEach(([who, v, cls], i) => {
-      const x = px(v), y = hasUs ? py(yUs(v)) : py(0);
-      const anchor = close ? (xs[i] <= xs[1 - i] ? 'end' : 'start') : 'middle';
-      const dx = close ? (anchor === 'end' ? -8 : 8) : 0;
-      s += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6.5" class="${cls}"/>`;
-      s += tx(clamp(x + dx, L + 24, W - R - 4), clamp(y - 12, T + 10, T + ph - 6), `${who} ${pct(v)}`, 'cl-b', anchor);
-    });
+    const xU = px(offers.union), xC = px(offers.company), close = Math.abs(xU - xC) < 84;
+    const pin = (x, who, v, row, cls) => {
+      const lab = `${who} ${pct(v)}`, w = tw1(lab), y = top + bh + 30 + row * 30, l = clamp(x - w / 2, 2, W - 2 - w);
+      return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${top + bh}" y2="${y}" class="rz-pin ${cls}"/>`
+        + `<circle cx="${x.toFixed(1)}" cy="${top + bh}" r="7" class="${cls === 'un' ? 'pt-un' : 'pt-co'}"/>`
+        + `<g class="rz-chip ${cls}"><rect x="${l.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="24" rx="12"/><text x="${(l + w / 2).toFixed(1)}" y="${y + 16.5}" text-anchor="middle">${esc(lab)}</text></g>`;
+    };
+    const unLow = close && xU < xC;   // 가까우면 왼쪽 핀을 아래 줄로
+    s += pin(xC, '회사안', offers.company, close && !unLow ? 1 : 0, 'co');
+    s += pin(xU, '노조안', offers.union, unLow ? 1 : 0, 'un');
   }
-  // x 눈금
-  for (const v of [0, M / 2, M]) s += tx(px(v), H - 10, `${+(v * 100).toFixed(1)}%`, 'cl', v === 0 ? 'start' : v === M ? 'end' : 'middle');
-  s += tx(L + pw / 2, H - 10, '', 'cl');
-  const aria = `협상 구간 그래프. 하한 ${pct(g)}${isNum(up) ? `, 상한 ${rng['상한 표시']}` : ''}${offers ? `, 노조안 ${pct(offers.union)}, 회사안 ${pct(offers.company)}` : ''}`;
-  const legend = `<div class="legend2">
-      ${hasUs ? '<span><i class="sw-us"></i>우리 회사: 인상률별로 영업이익에서 나가는 비중</span>' : ''}
-      ${hasInd ? '<span><i class="sw-ind"></i>업계 부담: 비교군이 업계 인상률만큼 올릴 때의 비중</span>' : ''}
-      ${isNum(up) ? `<span><i class="sw-zone${up >= g ? '' : ' bad'}"></i>${up >= g ? '협상 구간 (하한 ~ 상한)' : '업계만큼 올리면 부담이 업계보다 커지는 구간'}</span>` : ''}
-    </div>
-    <p class="axis-note">가로: 기본급 인상률 · 세로: 영업이익 중 인상 비용 (기본급 인상분, 3년 평균 이익 기준)</p>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">${s}</svg>${legend}`;
+  const aria = `협상 구간 눈금자. 하한 ${pct(g)}(업계 인상률)${hasUp ? `, 상한 ${rng['상한 표시']}(업계와 같은 부담)` : ''}${offers ? `, 노조안 ${pct(offers.union)}, 회사안 ${pct(offers.company)}` : ''}`;
+  const legend = `<ul class="legend-row rz-legend">
+      <li><i class="sw rz-sw-lo"></i>업계보다 뒤처짐</li>
+      <li><i class="sw rz-sw-in${hasUp ? '' : ' hold'}"></i>${hasUp ? '협상 구간' : '하한 이상'}</li>
+      ${hasUp ? '<li><i class="sw rz-sw-hi"></i>업계보다 부담 큼</li>' : ''}
+    </ul>`;
+  return `<p class="chart-y">기본급 인상률 <span>· 0%에서 오른쪽으로 갈수록 높음</span></p><svg class="chart rz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">${s}</svg>${legend}`;
 }
+// 글자 폭 어림 (12.5px 굵게 알약 / 12px 칸 이름)
+const tw1 = (t) => [...t].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 12.5 : ch === ' ' || ch === '.' ? 3.6 : ch === '%' ? 10 : 7.4), 0) + 18;
+const tw0 = (t) => [...String(t)].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 12 : 4), 0);
+
+// ---------------------------------------------------------------- 정리 부품 (문장 대신 쓰는 형식)
+// 파스텔 4색: butter · peach · lilac · aqua (판정 색 파랑·초록·빨강과 겹치지 않게 고름)
+const TONES = ['butter', 'peach', 'stone', 'amber'];
+// 소제목 + 파스텔 아이콘 칩
+const h2 = (title, ic, tone) => `<h2 class="hd"><span class="h-ic t-${tone}">${icon(ic, 16)}</span>${title}</h2>`;
+// 소제목 아래 핵심 태그 (문장 대신)
+const keys = (arr) => `<ul class="keys">${arr.filter(Boolean).map((t, i) => `<li class="t-${TONES[i % 4]}">${t}</li>`).join('')}</ul>`;
+// 항목 | 내용 목록
+const facts = (rows, head = '') => `${head ? `<p class="facts-h">${head}</p>` : ''}<dl class="facts">${rows.filter(Boolean).map(([k, v, s]) => `<dt>${k}</dt><dd>${v}${s ? `<span class="s">${s}</span>` : ''}</dd>`).join('')}</dl>`;
+// 지표 타일 (카드 밖, 섹션 안에 나란히)
+const tiles = (arr) => `<div class="tiles">${arr.filter(Boolean).map((t, i) => `<div class="tile t-${t.tone || TONES[i % 4]}"><span class="k">${t.k}</span><span class="v num">${t.v}</span>${t.s ? `<span class="s">${t.s}</span>` : ''}</div>`).join('')}</div>`;
+// 대결형 막대 비교 (표 대신): 가운데 항목, 왼쪽 A 막대는 왼쪽으로, 오른쪽 B 막대는 오른쪽으로 자란다.
+// 가운데 칩 = 두 값의 차이 + 큰 쪽을 가리키는 화살표. 모양(태그 순서)은 값과 상관없이 같게 유지 → 다시 그려도 깜빡이지 않음.
+function duel({ heads, tones, rows }) {
+  const side = (r, s, tone) => {
+    const n = r[`${s}n`], o = r[s === 'a' ? 'bn' : 'an'];
+    const mx = Math.max(Math.abs(n ?? 0), Math.abs(o ?? 0));
+    const w = isNum(n) && mx > 0 ? Math.max(Math.abs(n) / mx * 100, 4) : 0;
+    return `<div class="bf-s ${s} t-${tone}${r[`${s}neg`] ? ' neg' : ''}"><span class="bv num">${r[s]}</span>${r[`${s}s`] ? `<span class="bs">${r[`${s}s`]}</span>` : ''}${isNum(n) && !r.nobar ? `<span class="bb"><i style="width:${w.toFixed(1)}%"></i></span>` : ''}</div>`;
+  };
+  const chip = (r) => {
+    if (!r.diff) return '';
+    const ok = isNum(r.an) && isNum(r.bn);
+    const d = ok ? r.an - r.bn : 0, eq = !ok || Math.abs(d) < 1e-9;
+    return `<span class="bd${eq ? ' eq' : ''}"><i class="al${!eq && d > 0 ? ' on' : ''}">${icon('chevron-left', 12)}</i><b class="num">${eq ? '같음' : r.diff(Math.abs(d))}</b><i class="ar${!eq && d < 0 ? ' on' : ''}">${icon('chevron-right', 12)}</i></span>`;
+  };
+  return `<div class="bf">
+    <div class="bf-head"><div class="bh a t-${tones[0]}">${heads[0]}</div><span class="vs">VS</span><div class="bh b t-${tones[1]}">${heads[1]}</div></div>
+    ${rows.filter((r) => !(r.a === '—' && r.b === '—')).map((r) => `<div class="bf-row">${side(r, 'a', tones[0])}<div class="bf-c"><span class="bl">${r.lab}</span>${r.sub ? `<span class="bsub">${r.sub}</span>` : ''}${chip(r)}</div>${side(r, 'b', tones[1])}</div>`).join('')}
+  </div>`;
+}
+const dWon = (v) => won(v).replace(' 원', '');
+const dPp = (v) => `${v.toFixed(1)}%p`;
 
 // 0을 가운데 둔 가로 막대
 function dbar(v, lo, hi) {
@@ -241,7 +452,7 @@ function viewFind() {
   $view.innerHTML = `
     <div class="find-head">
       <h1>요구안을 받았을 때,<br>어디서 협상을 시작할까</h1>
-      <p>회사를 고르면 업계 비교군 20곳을 기준으로 협상 구간과 그 근거를 보여 드립니다.</p>
+      ${keys(['업계 비교군 20곳 기준', '협상 구간 하한·상한', '근거와 위험까지'])}
     </div>
     <div class="search">
       ${icon('search', 20)}
@@ -252,8 +463,8 @@ function viewFind() {
     </div>
     <ul class="results" id="res" aria-live="polite"></ul>
     <div class="find-foot">
-      <a class="link-row" href="#/about">${icon('info', 20)}<span>데이터와 계산의 근거·한계</span></a>
-      <p class="note">DART 공시 ${CTX.list.length.toLocaleString('ko-KR')}곳 · 진단 구간 ${CTX.meta.start}~${CTX.meta.end}년</p>
+      <a class="link-row" href="#/about">${icon('info', 20)}<span>데이터와 계산 근거</span></a>
+      ${tiles([{ k: 'DART 공시 회사', v: `${CTX.list.length.toLocaleString('ko-KR')}곳`, tone: 'stone' }, { k: '진단 구간', v: `${CTX.meta.start}~${CTX.meta.end}`, tone: 'amber' }])}
     </div>`;
   const $q = document.getElementById('q');
   const $res = document.getElementById('res');
@@ -263,12 +474,12 @@ function viewFind() {
     if (!q) { $res.innerHTML = ''; return; }
     const hit = CTX.list.filter((f) => f.key.includes(q) || (f.code && f.code.startsWith(q)));
     hit.sort((a, b) => (b.key.startsWith(q) - a.key.startsWith(q)) || (b.size - a.size));
-    if (!hit.length) { $res.innerHTML = `<li class="empty">'${esc(raw)}'와 맞는 회사가 없습니다. 상장사 이름의 일부나 6자리 종목코드로 찾아 보세요.</li>`; return; }
+    if (!hit.length) { $res.innerHTML = `<li class="empty"><strong>'${esc(raw)}' 결과 없음</strong>${keys(['회사 이름 일부', '6자리 종목코드'])}</li>`; return; }
     $res.innerHTML = hit.slice(0, 30).map((f) => {
       const i = f.name.replace(/\s+/g, '').toLowerCase().indexOf(q);
       const nm = i >= 0 && !/\s/.test(f.name) ? `${esc(f.name.slice(0, i))}<mark>${esc(f.name.slice(i, i + q.length))}</mark>${esc(f.name.slice(i + q.length))}` : esc(f.name);
-      return `<li><a class="result" href="#/f/${f.id}"><span class="grow"><span class="name">${nm}</span><span class="meta">${esc(f.ind)}${f.code ? ` · ${f.code}` : ''}</span></span>${icon('chevron-right', 20)}</a></li>`;
-    }).join('') + (hit.length > 30 ? `<li class="empty">${hit.length - 30}곳 더 있습니다. 이름을 더 입력해 좁혀 주세요.</li>` : '');
+      return `<li><a class="result" href="#/f/${f.id}"><span class="chip-sq" aria-hidden="true">${esc([...String(f.name).replace(/^\(주\)|^주식회사\s*/, '').trim()][0] || '·')}</span><span class="grow"><span class="name">${nm}</span><span class="meta">${esc(f.ind)}${f.code ? ` · ${f.code}` : ''}</span></span>${icon('chevron-right', 20)}</a></li>`;
+    }).join('') + (hit.length > 30 ? `<li class="empty">+${hit.length - 30}곳 더 · 이름을 더 입력해 좁히기</li>` : '');
   };
   $q.addEventListener('input', run);
   $view.querySelectorAll('[data-ex]').forEach((b) => b.addEventListener('click', () => { $q.value = b.dataset.ex; run(); }));
@@ -276,12 +487,12 @@ function viewFind() {
 
 // ---------------------------------------------------------------- 화면: 요약·진단
 function heroCard(f, rng) {
-  const gap = isNum(f.wage_gap_pct) ? `업계 중앙 대비 ${signed(f.wage_gap_pct)}` : '비교할 업계 회사가 부족함';
-  const capSub = f.capacity === '여력 제약' ? u(f.capacity_reason || '') : `영업이익률 ${pctRaw(f.opm_pct)} · 업계 ${pctRaw(f.opm_ind_pct)}`;
+  const gap = isNum(f.wage_gap_pct) ? `업계 중앙 대비 ${signed(f.wage_gap_pct)}` : '';
+  const capSub = f.capacity === '여력 제약' ? u(f.capacity_reason || '') : `영업이익률 ${pctRaw(f.opm_pct)}${isNum(f.opm_ind_pct) ? ` · 업계 ${pctRaw(f.opm_ind_pct)}` : ''}`;
   let line;
   const state = rng['상한 상태'];
   if (state === '비교군 인상률 없음') {
-    line = `<div class="rangeline hold"><div class="k">협상 구간</div><div class="v">계산할 수 없음</div><div class="s">비교군(같은 업계 20곳)을 만들 수 없는 회사입니다</div></div>`;
+    line = `<a class="rangeline" href="#/f/${f.id}/range"><div class="k">협상 구간</div><div class="v">업계 인상률 넣고 계산 ${icon('chevron-right', 20)}</div><div class="s">하한·상한을 바로 계산</div></a>`;
   } else if (state === CTX.C.RANGE_HOLD_TEXT) {
     line = `<div class="rangeline"><div class="k">협상 구간</div><div class="v">하한 ${pct(rng['하한'])}</div><div class="s">${esc(state)}</div></div>`;
   } else {
@@ -290,29 +501,35 @@ function heroCard(f, rng) {
   return `<section class="hero">
     <h2 class="co">${esc(f.name)}</h2>
     <p class="ind">${esc(f.ind2_name || '')}${f.stock_code ? ` · ${f.stock_code}` : ''}${f.market ? ` · ${esc(f.market)}` : ''}</p>
-    <div class="axes">
-      <div class="axis"><div class="k">업계 대비 임금 위치</div><div class="v">${esc(f.wage_pos || '—')}</div><div class="s">${gap}</div></div>
-      <div class="axis"><div class="k">업계 대비 이익률</div><div class="v">${esc(CAP_LABEL[f.capacity] || f.capacity || '—')}</div><div class="s">${esc(capSub)}</div></div>
-    </div>
+    ${(() => {
+      const ax = [
+        f.wage_pos && f.wage_pos !== '비교 불가' ? `<div class="axis"><div class="k">업계 대비 임금 위치</div><div class="v">${esc(f.wage_pos)}</div><div class="s">${gap}</div></div>` : '',
+        CAP_LABEL[f.capacity] && f.capacity !== '판정 불가' ? `<div class="axis"><div class="k">업계 대비 이익률</div><div class="v">${esc(CAP_LABEL[f.capacity])}</div><div class="s">${esc(capSub)}</div></div>` : '',
+      ].filter(Boolean);
+      return ax.length ? `<div class="axes${ax.length === 1 ? ' one' : ''}">${ax.join('')}</div>` : '';
+    })()}
+  </section>
+  <div class="sheet-lip">
     ${line}
-  </section>`;
+  </div>`;
 }
 
+// 한 줄 진단: 판정 두 개(알약) + 핵심 세 줄(아이콘 · 항목 · 값 · 보조)
 function diagnosis(f, rng, wc) {
-  const wageW = { '임금 높음': '업계보다 높고', '임금 보통': '업계 수준이고', '임금 낮음': '업계보다 낮고' }[f.wage_pos] || '업계와 비교할 수 없고';
-  const capW = { '여력 있음': '업계보다 높은 회사', '여력 보통': '업계보다 낮은 회사', '여력 제약': '적자나 이자 부담으로 제약된 회사', '판정 불가': '판단하기 어려운 회사' }[f.capacity] || '판단하기 어려운 회사';
-  const one = `임금은 ${wageW}, 이익률은 ${capW}입니다.`;
-  const b1 = isNum(f.wage_gap_pct)
-    ? `1인당 급여 ${isNum(f.wage_10k) ? Math.round(f.wage_10k).toLocaleString('ko-KR') : '—'}만 원, 업계 중앙보다 ${Math.abs(f.wage_gap_pct).toFixed(1)}% ${f.wage_gap_pct >= 0 ? '높음' : '낮음'}${wc.rank ? ` (${wc.n}곳 중 ${wc.rank}위)` : ''}`
-    : `1인당 급여 ${isNum(f.wage_10k) ? Math.round(f.wage_10k).toLocaleString('ko-KR') : '—'}만 원, 비교할 업계 회사가 부족함`;
-  const b2 = f.capacity === '여력 제약'
-    ? `3년 영업이익률 ${pctRaw(f.opm_pct)}, ${u(f.capacity_reason || '제약')}`
-    : `3년 영업이익률 ${pctRaw(f.opm_pct)}, 업계 ${pctRaw(f.opm_ind_pct)}`;
+  const wageW = { '임금 높음': '업계보다 높음', '임금 보통': '업계 수준', '임금 낮음': '업계보다 낮음' }[f.wage_pos] || '비교 불가';
+  const capW = { '여력 있음': '업계보다 높음', '여력 보통': '업계보다 낮음', '여력 제약': '제약', '판정 불가': '판정 불가' }[f.capacity] || '판정 불가';
+  const wage = isNum(f.wage_10k) ? `${Math.round(f.wage_10k).toLocaleString('ko-KR')}만 원` : '—';
   const st0 = rng['상한 상태'];
-  const b3 = st0 === '비교군 인상률 없음' ? '협상 구간을 계산할 수 없음 (업계 인상률을 직접 넣으면 계산)'
-    : st0 === CTX.C.RANGE_HOLD_TEXT ? `업계 인상률(하한) ${pct(rng['하한'])}, 업계 적자로 상한은 산출 보류`
-      : `협상 구간 ${pct(rng['하한'])} ~ ${rng['상한 표시']}: ${rng['구간 해석']}`;
-  return `<p class="one">${esc(one)}</p><ul class="bul"><li>${esc(b1)}</li><li>${esc(b2)}</li><li>${esc(b3)}</li></ul>`;
+  const rows = [
+    ['users', 'stone', '1인당 급여', wage, isNum(f.wage_gap_pct) ? `업계 중앙 ${signed(f.wage_gap_pct)}${wc.rank ? ` · ${wc.n}곳 중 ${wc.rank}위` : ''}` : ''],
+    ['trending-up', 'amber', '영업이익률 (3년)', isNum(f.opm_pct) ? pctRaw(f.opm_pct) : '', f.capacity === '여력 제약' ? esc(u(f.capacity_reason || '제약')) : isNum(f.opm_ind_pct) ? `업계 ${pctRaw(f.opm_ind_pct)}` : ''],
+    ['scale', 'peach', '협상 구간',
+      st0 === '비교군 인상률 없음' ? '직접 입력' : st0 === CTX.C.RANGE_HOLD_TEXT ? `하한 ${pct(rng['하한'])}` : `${pct(rng['하한'])} ~ ${esc(rng['상한 표시'])}`,
+      st0 === '비교군 인상률 없음' ? '업계 인상률 넣으면 바로 계산' : st0 === CTX.C.RANGE_HOLD_TEXT ? '업계 적자 → 상한 보류' : esc(rng['구간 해석'])],
+  ];
+  const pills = [f.wage_pos && f.wage_pos !== '비교 불가' ? `<span class="vp"><b>임금</b>${wageW}</span>` : '', f.capacity && f.capacity !== '판정 불가' ? `<span class="vp"><b>이익률</b>${capW}</span>` : ''].join('');
+  return `<div class="verdict">${pills}</div>
+    <ul class="drows">${rows.filter(([, , , v, s]) => v || s).map(([ic, tone, k, v, s]) => `<li><span class="h-ic t-${tone}">${icon(ic, 16)}</span><span class="dk">${k}<span class="s">${s}</span></span><span class="dv num">${v}</span></li>`).join('')}</ul>`;
 }
 
 function viewSummary(id) {
@@ -329,56 +546,67 @@ function viewSummary(id) {
   $view.innerHTML = `
     ${heroCard(f, rng)}
     <section class="section">
-      <h2>한 줄 진단</h2>
-      <div class="panel diag">${diagnosis(f, rng, wc)}</div>
+      ${h2('한 줄 진단', 'sliders-horizontal', 'butter')}
+      <div class="panel diag t-butter">${diagnosis(f, rng, wc)}</div>
     </section>
     ${hasRange ? `<section class="section">
-      <h2>협상 구간</h2>
-      <div class="panel">${rangeChart(f, rng, null, true)}
+      ${h2('협상 구간', 'scale', 'peach')}
+      <div class="panel enter">${rangeChart(f, rng, null, true)}
         <a class="btn" href="#/f/${id}/range" style="margin-top:14px">노조안·회사안 넣어 보기 ${icon('chevron-right', 20)}</a>
       </div>
     </section>` : ''}
-    <section class="section">
-      <h2>업계 대비 임금 위치</h2>
-      <p class="lead">같은 업계에서 매출·1인당 자산이 비슷한 회사 20곳과 1인당 급여(3년)를 비교했습니다.</p>
+    ${wc.rank ? `<section class="section">
+      ${h2('업계 대비 임금 위치', 'users', 'stone')}
+      ${keys(['비교군 20곳', '같은 업계·비슷한 규모', '1인당 급여 3년'])}
       <div class="panel">
+        ${wageHead(f, wc)}
         ${wc.svg}
-        <hr class="divider">
-        <dl class="kv">
-          <dt>우리 1인당 급여(3년)</dt><dd class="num">${isNum(f.wage_10k) ? `${Math.round(f.wage_10k).toLocaleString('ko-KR')}만 원` : '—'}</dd>
-          <dt>업계 중앙</dt><dd class="num">${isNum(f.peer_median_10k) ? `${Math.round(f.peer_median_10k).toLocaleString('ko-KR')}만 원` : '—'}</dd>
-          <dt>업계 중앙 대비</dt><dd class="num">${signed(f.wage_gap_pct)}</dd>
-          <dt>순위</dt><dd class="num">${wc.rank ? `${wc.n}곳 중 ${wc.rank}위` : '—'}</dd>
-        </dl>
-        ${f.wage_pos === '임금 낮음' ? `<div class="callout" style="margin-top:14px">${icon('users', 18)}<span>업계 대비 임금 위치 하위 20% 회사들은 정규직 자발적 이직률이 상위 20%보다 약 5%p 높았습니다(17.8% vs 12.7%, WPS 분석). 같은 회사가 임금을 올렸을 때 이직이 줄어드는지는 확인되지 않았습니다.</span></div>` : ''}
-        ${f.peer_warn ? `<p class="note" style="margin-top:10px">주의: ${esc(u(f.peer_warn))}</p>` : ''}
+        <ul class="legend-row">
+          <li><i class="sw sw-zone-q"></i>하위·상위 25% = 판정 기준</li>
+          <li><i class="sw sw-us"></i>우리 회사</li>
+          <li><i class="sw sw-med"></i>업계 중앙</li>
+          <li class="hint">${icon('info', 14)}막대 누르면 회사명</li>
+        </ul>
+        ${f.wage_pos === '임금 낮음' ? `<div class="turnover">
+            <p class="facts-h">임금 위치별 정규직 자발적 이직률 (WPS)</p>
+            ${tiles([{ k: '하위 20%', v: '17.8%', tone: 'peach' }, { k: '상위 20%', v: '12.7%', tone: 'amber' }])}
+            ${keys(['차이 약 5%p'])}
+          </div>` : ''}
       </div>
-    </section>
-    <section class="section">
-      <h2>업계 대비 이익률</h2>
-      <p class="lead">3년 합산 영업이익률을 같은 업계의 중앙값과 비교했습니다.</p>
+    </section>` : ''}
+    <section class="section"${isNum(opm) ? '' : ' hidden'}>
+      ${h2('업계 대비 이익률', 'trending-up', 'amber')}
+      ${keys(['3년 합산 영업이익률', isNum(ind) ? '업계 중앙과 비교' : ''])}
       <div class="panel">
+        ${CAP_LABEL[f.capacity] && f.capacity !== '판정 불가' ? `<div class="verdict" style="margin-bottom:14px"><span class="vp"><b>판정</b>${esc(CAP_LABEL[f.capacity])}</span></div>` : ''}
         <div class="bars2">
           <div class="b"><span>우리 회사</span>${bar(opm, '')}<span class="val num">${pctRaw(opm)}</span></div>
-          <div class="b"><span>업계 중앙</span>${bar(ind, 'ind')}<span class="val num">${pctRaw(ind)}</span></div>
+          ${isNum(ind) ? `<div class="b"><span>업계 중앙</span>${bar(ind, 'ind')}<span class="val num">${pctRaw(ind)}</span></div>` : ''}
         </div>
-        <hr class="divider">
-        <dl class="kv">
-          <dt>판정</dt><dd>${esc(CAP_LABEL[f.capacity] || '—')}</dd>
-          <dt>인건비율 (급여÷매출)</dt><dd class="num">${pctRaw(f.labor_ratio_pct)} <span class="muted small">업계 ${pctRaw(f.peer_labor_ratio_pct)}</span></dd>
-          <dt>영업이익률 평소 변동</dt><dd class="num">${isNum(f.opm_sd_pctp) ? `${f.opm_sd_pctp.toFixed(1)}%p` : '<span class="muted small">자료 부족</span>'}</dd>
-        </dl>
-        ${f.cf_flag ? `<p class="note" style="margin-top:10px">${esc(u(f.cf_flag))}</p>` : ''}
-        ${f.pay_check ? `<p class="note" style="margin-top:6px">${esc(u(f.pay_check))}</p>` : ''}
       </div>
+      ${tiles([
+        { k: '인건비율 · 급여÷매출', v: pctRaw(f.labor_ratio_pct), s: isNum(f.peer_labor_ratio_pct) ? `업계 ${pctRaw(f.peer_labor_ratio_pct)}` : '', tone: 'stone' },
+        isNum(f.opm_sd_pctp) ? { k: '이익률 평소 변동', v: `${f.opm_sd_pctp.toFixed(1)}%p`, tone: 'peach' } : null,
+      ])}
+      ${f.cf_flag ? `<ul class="flags">${[f.cf_flag].filter(Boolean).map((x) => `<li>${icon('circle-alert', 15)}${esc(u(x))}</li>`).join('')}</ul>` : ''}
     </section>
     ${peers.length ? `<section class="section">
       <details class="more panel">
-        <summary>비교군 20곳 보기 (급여 높은 순) ${icon('chevron-right', 18)}</summary>
-        <ul class="peers-list">${peers.map((p, i) => `<li><span><span class="rk">${i + 1}</span>${esc(p.name)}${p.ind2 === f.ind2 ? '' : '<span class="same">다른 업계 분류</span>'}</span><span class="num">${man(p.w)}</span></li>`).join('')}</ul>
-        <p class="note" style="margin-top:8px">금액은 1인당 급여(3년, 급여총액÷직원수)입니다.</p>
+        <summary><span class="sum-l"><span class="h-ic t-stone">${icon('users', 16)}</span>비교군 ${peers.length}곳 보기</span>${icon('chevron-right', 18)}</summary>
+        <ul class="peers-list">${[...peers, ...(isNum(f.w) ? [{ ...f, us: true }] : [])].sort((a, b) => b.w - a.w).map((p, i) => `<li${p.us ? ' class="us"' : ''}>
+            <span class="chip-sq num">${i + 1}</span>
+            <span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.us ? '우리 회사' : p.ind2 === f.ind2 ? '같은 업계' : '다른 업계 분류'}</span></span>
+            <span class="num v">${man(p.w)}</span></li>`).join('')}</ul>
+        ${keys(['급여 높은 순', '우리 회사 포함', '1인당 급여 = 급여총액 ÷ 직원수'])}
       </details>
     </section>` : ''}`;
+  bindWageChart($view, wc.items);
+  const tb = $view.querySelector('.tip-btn');
+  if (tb) tb.addEventListener('click', () => {
+    const open = tb.getAttribute('aria-expanded') !== 'true';
+    tb.setAttribute('aria-expanded', String(open));
+    $view.querySelector('#wage-warn').hidden = !open;
+  });
 }
 
 // ---------------------------------------------------------------- 공통 입력 부품
@@ -426,8 +654,8 @@ function viewRange(id) {
   setTabs(id, '/range');
   const rng0 = E.negotiationRange(CTX, id, S.override);
   if (rng0['상한 상태'] === '비교군 인상률 없음' && S.override === null) {
-    $view.innerHTML = `<section class="section"><h2>인상안 협상 구간</h2>
-      <div class="callout neutral">${icon('circle-alert', 18)}<span>이 회사는 비교군(같은 업계에서 비슷한 회사 20곳)을 만들 수 없어 업계 인상률을 계산할 수 없습니다. 업계 인상률을 직접 넣으면 구간을 계산합니다.</span></div>
+    $view.innerHTML = `<section class="section">${h2('인상안 협상 구간', 'scale', 'peach')}
+      <div class="panel t-butter">${facts([['방법', '업계 인상률 직접 입력', '넣는 즉시 하한·상한 계산']])}</div>
       <button class="btn" type="button" id="ovon" style="margin-top:12px">업계 인상률 직접 넣기</button></section>`;
     document.getElementById('ovon').addEventListener('click', () => { S.override = 0.04; viewRange(id); });
     return;
@@ -435,35 +663,36 @@ function viewRange(id) {
   const ov = S.override;
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
-      <h2>인상안 협상 구간</h2>
-      <p class="lead">하한은 노측이, 상한은 사측이 내세울 수 있는 근거입니다. 노조안·회사안은 그래프 위의 점입니다.</p>
+      ${h2('인상안 협상 구간', 'scale', 'peach')}
+      ${keys(['하한 = 노측 근거', '상한 = 사측 근거', '점 = 노조안·회사안'])}
       <div class="panel" id="chartbox"></div>
       <details class="more panel">
-        <summary>하한과 상한은 어떻게 정하나 ${icon('chevron-right', 18)}</summary>
-        <div class="note stack">
-          <p><strong>하한 = 업계 인상률.</strong> 비교군 20곳의 최근 3년 1인당 급여 연 증가율 중앙값입니다. 이보다 낮게 올리면 업계 대비 임금 위치가 내려갑니다. 임금 위치가 낮은 회사일수록 자발적 이직이 많았습니다(WPS 분석).</p>
-          <p><strong>상한 = 업계와 같은 부담 수준.</strong> 그래프의 검은 선(우리 회사 부담)이 점선(업계 부담)과 만나는 인상률입니다. 우리 회사의 이익이 급여에 비해 업계보다 크면 선이 완만해져 상한이 하한보다 높아지고, 작으면 낮아집니다. 감당 한도가 아니라 업계 기준으로 맞춘 선입니다.</p>
-          <p>1인당 급여 증가율에는 성과급·승진·인력 구성 변화가 섞여 있어 기본급 인상률 자체와는 다를 수 있습니다.</p>
-        </div>
+        <summary><span class="sum-l"><span class="h-ic t-butter">${icon('info', 16)}</span>하한·상한 정하는 법</span>${icon('chevron-right', 18)}</summary>
+        ${facts([
+          ['하한', '<strong>업계 인상률</strong>', '비교군 20곳 · 최근 3년 1인당 급여 연 증가율 중앙값'],
+          ['하한보다 낮으면', '업계 대비 임금 위치 하락', '임금 위치 낮을수록 자발적 이직 많음 (WPS)'],
+          ['상한', '<strong>업계와 같은 부담 수준</strong>', '검은 선(우리 부담) × 점선(업계 부담) 교차점'],
+          ['상한의 의미', '감당 한도 아님 · 업계 기준선', '이익이 급여 대비 크면 상한 ↑'],
+        ])}
       </details>
     </section>
     <section class="section">
-      <h2>두 안 넣기</h2>
-      <div class="offer"><div class="offer-head"><h3><span class="who union"></span>노조안</h3></div>
+      ${h2('두 안 넣기', 'sliders-horizontal', 'stone')}
+      <div class="offer t-butter"><div class="offer-head"><h3><span class="who union"></span>노조안</h3></div>
         <div class="fields">${stepper('ub', S.union.base, { label: '기본급 인상률' })}${stepper('ux', S.union.bonus, { label: '일시 성과급(급여 대비)' })}</div></div>
-      <div class="offer"><div class="offer-head"><h3><span class="who"></span>회사안</h3></div>
+      <div class="offer t-peach"><div class="offer-head"><h3><span class="who"></span>회사안</h3></div>
         <div class="fields">${stepper('cb', S.company.base, { label: '기본급 인상률' })}${stepper('cx', S.company.bonus, { label: '일시 성과급(급여 대비)' })}</div></div>
       <details class="more panel">
-        <summary>두 안에 같이 적용할 가정 ${icon('chevron-right', 18)}</summary>
+        <summary><span class="sum-l"><span class="h-ic t-amber">${icon('sliders-horizontal', 16)}</span>두 안 공통 가정</span>${icon('chevron-right', 18)}</summary>
         ${sw('ov', ov !== null, '업계 인상률 직접 입력', '켜면 하한·상한을 이 값으로 다시 계산')}
         <div id="ovf" ${ov === null ? 'hidden' : ''}>${stepper('ov', ov ?? (isNum(f.peer_growth) ? f.peer_growth : 0.04), { label: '업계 인상률', step: 0.1, max: 30 })}</div>
         <hr class="divider">
         <div class="fields">${stepper('hc', S.headcount, { label: '인원 증감', min: -50, max: 50 })}${stepper('sg', S.sales, { label: '매출 증가율', min: -80, max: 100 })}</div>
-        <p class="note" style="margin-top:8px">새로 뽑는 사람의 급여는 지금 1인당 평균, 늘어난 매출에도 지금 영업이익률이 그대로라고 가정합니다. 불황이 오면 어떻게 되는지는 미래 위험 탭에서 봅니다.</p>
+        ${facts([['신규 인원 급여', '지금 1인당 평균'], ['늘어난 매출', '지금 영업이익률 유지'], ['불황 영향', '미래 위험 탭에서']])}
       </details>
     </section>
     <section class="section">
-      <h2>두 안 비교</h2>
+      ${h2('두 안 비교', 'git-compare-arrows', 'butter')}
       <div class="panel" id="cmpbox"></div>
       <div class="row" style="margin-top:12px;gap:10px">
         <a class="btn secondary half" href="#/f/${id}/link">${icon('coins', 18)}이익연동이면</a>
@@ -484,28 +713,45 @@ function viewRange(id) {
     const R = (k) => t.rows[k];
     const state = rng['상한 상태'];
     let interp;
-    if (state === CTX.C.RANGE_HOLD_TEXT) interp = `<div class="callout neutral">${icon('circle-alert', 18)}<span><strong>업계 적자로 인한 상한 산출 보류.</strong> 비교군 대부분이 적자라 "업계만큼의 부담"을 정할 수 없습니다. 하한(업계 인상률)만 참고하고, 고정 인상보다 이익연동 전환을 함께 검토해 보세요.</span></div>`;
-    else if (state === '3년 합산 영업적자') interp = `<div class="callout">${icon('circle-alert', 18)}<span><strong>3년 합산 영업적자라 상한이 0%입니다.</strong> 이익이 없어 우리 회사 부담선을 그릴 수 없습니다. 고정 인상 대신 이익연동 전환을 검토해 보세요.</span></div>`;
-    else interp = `<div class="callout">${icon('scale', 18)}<span>${esc(rng['구간 해석'])}${state === '적자 전환 직전에서 제한' ? ' (마지막 해 영업이익을 다 쓰는 선에서 상한을 멈췄습니다)' : ''}${rng['상한'] > CTX.C.RANGE_UPPER_SHOW_MAX ? '. 상한이 10%를 넘어 숫자 대신 "10% 초과"로 표시합니다' : ''}</span></div>`;
+    const callout = (ic, title, tags, tone = '') => `<div class="callout${tone}">${icon(ic, 18)}<div><strong>${title}</strong>${keys(tags)}</div></div>`;
+    if (state === CTX.C.RANGE_HOLD_TEXT) interp = callout('circle-alert', '업계 적자 → 상한 산출 보류', ['비교군 대부분 적자', '하한만 참고', '이익연동 전환 검토'], ' neutral');
+    else if (state === '3년 합산 영업적자') interp = callout('circle-alert', '3년 합산 영업적자 → 상한 0%', ['우리 부담선 없음', '이익연동 전환 검토']);
+    else interp = callout('scale', esc(rng['구간 해석']), [
+      state === '적자 전환 직전에서 제한' ? '마지막 해 영업이익 한도에서 멈춤' : '',
+      rng['상한'] > CTX.C.RANGE_UPPER_SHOW_MAX ? '상한 10% 초과 → "10% 초과" 표시' : '',
+    ]);
     const pos = (k) => `<span class="badge ${posClass(R('구간 위치')[k])}"><span class="dot"></span>${esc(R('구간 위치')[k])}</span>`;
-    document.getElementById('chartbox').innerHTML = `${rangeChart(f, rng, { union: S.union.base, company: S.company.base })}
+    const $cb = document.getElementById('chartbox');
+    enterOnce($cb);
+    morph($cb, `${rangeChart(f, rng, { union: S.union.base, company: S.company.base })}
       <div class="pos-row"><div><span class="k">노조안</span>${pos('노조안')}</div><div><span class="k">회사안</span>${pos('회사안')}</div></div>
-      <div style="margin-top:12px">${interp}</div>`;
-    const yes = (v) => (v ? '<span class="badge above">예</span>' : '아니요');
+      <div style="margin-top:12px">${interp}</div>`);
     const rank = (v) => (isNum(v) ? `상위 ${Math.max(1, Math.round((1 - v) * 100))}%` : '—');
-    document.getElementById('cmpbox').innerHTML = `
-      <table class="cmp">
-        <thead><tr><th></th><th>노조안</th><th>회사안</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">회사 부담 증가 (1년)</th><td>${won(R('회사 부담 증가(1년)')['노조안'])}</td><td>${won(R('회사 부담 증가(1년)')['회사안'])}</td></tr>
-          <tr><th scope="row">3년 누적 부담</th><td>${won(R('3년 누적 부담(인원·기본급 유지 + 성과급 1회)')['노조안'])}</td><td>${won(R('3년 누적 부담(인원·기본급 유지 + 성과급 1회)')['회사안'])}</td></tr>
-          <tr><th scope="row">비용 ÷ 영업이익</th><td>${pctRaw(R('비용÷영업이익(%)')['노조안'])}</td><td>${pctRaw(R('비용÷영업이익(%)')['회사안'])}</td></tr>
-          <tr><th scope="row">내년 영업이익률</th><td>${pctRaw(R('내년 영업이익률(%)')['노조안'])}</td><td>${pctRaw(R('내년 영업이익률(%)')['회사안'])}</td></tr>
-          <tr><th scope="row">내년 업계 대비 임금</th><td>${signed(R('내년 예상 임금 차이(%)')['노조안'])}<span class="sub">${rank(R('내년 예상 순위')['노조안'])}</span></td><td>${signed(R('내년 예상 임금 차이(%)')['회사안'])}<span class="sub">${rank(R('내년 예상 순위')['회사안'])}</span></td></tr>
-          <tr><th scope="row">지급 때문에 적자 전환</th><td>${yes(R('지급 때문에 적자 전환')['노조안'])}</td><td>${yes(R('지급 때문에 적자 전환')['회사안'])}</td></tr>
-        </tbody>
-      </table>
-      <p class="note" style="margin-top:10px">두 안의 1년 부담 차이 <strong>${won(R('회사 부담 증가(1년)')['차이(노조안 − 회사안)'])}</strong>. 기본급 인상에는 4대보험·퇴직금(약 18.3%), 일시 성과급에는 4대보험(10%) 부담을 더했습니다. 이 표는 성과급과 마지막 해 영업이익까지 넣은 값이라 그래프(기본급 인상분, 3년 평균 이익)와 숫자가 다를 수 있습니다. 내년 업계 대비 임금은 비교군도 업계 인상률(${pct(R('비교군 인상률 가정')['노조안'])})만큼 오른다고 본 값입니다.</p>`;
+    const two = (key, fmt, extra = {}) => {
+      const a = R(key)['노조안'], b = R(key)['회사안'];
+      return { a: fmt(a), b: fmt(b), an: a, bn: b, aneg: isNum(a) && a < 0, bneg: isNum(b) && b < 0, ...extra };
+    };
+    const dz = (v) => (v ? '<span class="badge above">적자 전환</span>' : '<span class="badge inside">흑자 유지</span>');
+    // 내년 업계 중앙 급여 = 내년 우리 1인당 급여 ÷ (1 + 업계 중앙 대비 차이)
+    const nU = R('내년 1인당 급여')['노조안'], gU = R('내년 예상 임금 차이(%)')['노조안'];
+    const medNext = isNum(nU) && isNum(gU) ? nU / (1 + gU / 100) : NaN;
+    const head = (who, o) => `<span class="bt"><span class="who${who === '노조안' ? ' union' : ''}"></span>${who}</span><span class="bi num">기본급 ${pct(o.base)}<br>성과급 ${pct(o.bonus)}</span>${pos(who)}`;
+    morph(document.getElementById('cmpbox'), `
+      ${duel({ heads: [head('노조안', S.union), head('회사안', S.company)], tones: ['butter', 'peach'], rows: [
+        { lab: '회사 부담 증가', sub: '1년', ...two('회사 부담 증가(1년)', won), diff: dWon },
+        { lab: '3년 누적 부담', sub: '성과급 1회 포함', ...two('3년 누적 부담(인원·기본급 유지 + 성과급 1회)', won), diff: dWon },
+        { lab: '비용 ÷ 영업이익', ...two('비용÷영업이익(%)', pctRaw), diff: dPp },
+        { lab: '내년 영업이익률', ...two('내년 영업이익률(%)', pctRaw), diff: dPp },
+        { lab: '내년 1인당 급여', sub: '성과급 포함', ...two('내년 1인당 급여', man), diff: (v) => man(v).replace(' 원', '') },
+        { lab: '업계 중앙보다', sub: isNum(medNext) ? `내년 업계 중앙 ${man(medNext)}` : '내년 업계 중앙 대비', ...two('내년 예상 임금 차이(%)', signed), as: rank(R('내년 예상 순위')['노조안']), bs: rank(R('내년 예상 순위')['회사안']), aneg: false, bneg: false, nobar: true, diff: dPp },
+        { lab: '지급 후 이익', a: dz(R('지급 때문에 적자 전환')['노조안']), b: dz(R('지급 때문에 적자 전환')['회사안']) },
+      ] })}
+      <p class="facts-h">계산 기준</p>
+      <dl class="facts">
+        <dt>기본급 인상</dt><dd>4대보험·퇴직금 약 18.3% 포함</dd>
+        <dt>일시 성과급</dt><dd>4대보험 10% 포함</dd>
+        ${isNum(R('비교군 인상률 가정')['노조안']) ? `<dt>내년 임금 가정</dt><dd>비교군도 업계 인상률 <span class="num">${pct(R('비교군 인상률 가정')['노조안'])}</span>만큼 인상</dd>` : ''}
+      </dl>`);
   };
   bindSteppers($view, get, set, draw);
   $view.querySelector('[data-sw="ov"]').addEventListener('change', (e) => {
@@ -533,22 +779,22 @@ function viewLink(id) {
   const maxA = Math.max(0.3, isNum(aStar) ? aStar * 2.5 : 0.3);
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
-      <h2>이익연동 전환</h2>
-      <p class="lead">급여의 5%를 고정으로 주던 성과급을 "영업이익의 몇 %"로 바꾸면 어떻게 되는지 봅니다. 기준은 진단과 같은 3년 연평균입니다.</p>
-      ${isNum(aStar) ? `<div class="callout">${icon('coins', 18)}<span>시작값 <strong>영업이익의 ${pct(aStar)}</strong>를 주면 지금의 고정 지급(급여 5%)과 같은 금액입니다.</span></div>`
-        : `<div class="callout neutral">${icon('circle-alert', 18)}<span>3년 합산 영업적자라 시작값을 계산하지 않습니다. 연동 방식이면 이익이 날 때까지 지급액이 0원입니다.</span></div>`}
+      ${h2('이익연동 전환', 'coins', 'stone')}
+      ${keys(['지금: 급여의 5% 고정', '바꾸면: 영업이익의 n%', '기준: 3년 연평균'])}
+      ${isNum(aStar) ? tiles([{ k: '시작값', v: `영업이익의 ${pct(aStar)}`, s: '= 지금 고정 지급과 같은 금액', tone: 'butter' }])
+        : `<div class="callout neutral">${icon('circle-alert', 18)}<div><strong>3년 합산 영업적자</strong>${keys(['시작값 계산 안 함', '이익 날 때까지 연동 지급 0원'])}</div></div>`}
     </section>
     <section class="section">
-      <div class="panel">
+      <div class="panel t-stone">
         <div class="row between"><label for="alpha" class="t" style="font-weight:600">영업이익 대비 지급 비율</label><strong class="num" id="alv">${pct(a0)}</strong></div>
         <input class="slider" id="alpha" type="range" min="0" max="${(maxA * 100).toFixed(1)}" step="0.1" value="${(a0 * 100).toFixed(1)}">
         ${isNum(aStar) ? `<button class="chip" id="reset" type="button">시작값 ${pct(aStar)}로</button>` : ''}
       </div>
     </section>
     <section class="section">
-      <h2>고정 vs 연동</h2>
+      ${h2('고정 vs 연동', 'git-compare-arrows', 'amber')}
       <div class="panel" id="lres"></div>
-      <p class="note" style="margin-top:10px">흑자일 때 연동 방식의 회사 부담 ÷ 영업이익은 비율 × 1.1로 어느 회사나 같습니다. 회사마다 달라지는 것은 직원이 받는 급여 대비 지급률입니다. 성과급이 생산성을 올린다는 근거는 이번 분석에서 찾지 못했습니다(성과급은 성과를 뒤따라 지급됨, WPS 분석).</p>
+      <div class="panel t-amber" style="margin-top:12px">${facts([['연동 부담 ÷ 영업이익', '= 비율 × 1.1', '흑자일 때 어느 회사나 같음'], ['회사마다 다른 것', '직원의 급여 대비 지급률']])}</div>
       <a class="btn secondary" href="#/f/${id}/risk" style="margin-top:12px">${icon('cloud-lightning', 18)}불황이 오면 연동 지급은?</a>
     </section>`;
   const alpha = () => S.link.alpha ?? (isNum(aStar) ? aStar : 0.05);
@@ -556,17 +802,15 @@ function viewLink(id) {
     const r = E.profitLinkPlan(CTX, id, { alpha: alpha() });
     document.getElementById('alv').textContent = pct(alpha());
     const ratio = r['연동 ÷ 고정'];
-    document.getElementById('lres').innerHTML = `
-      <table class="cmp">
-        <thead><tr><th></th><th>고정 (급여 5%)</th><th>연동</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">1년 지급 총액</th><td>${won(r['고정 지급(급여 대비 rate)'])}</td><td>${won(r['연동 지급'])}</td></tr>
-          <tr><th scope="row">1인당</th><td>${man(r['1인당 고정 지급'])}</td><td>${man(r['1인당 연동 지급'])}</td></tr>
-          <tr><th scope="row">회사 부담 ÷ 영업이익</th><td>${pctRaw(r['고정 부담 ÷ 영업이익(%)'])}</td><td>${pctRaw(r['연동 부담 ÷ 영업이익(%)'])}</td></tr>
-          <tr><th scope="row">급여 대비 지급률</th><td>5.0%</td><td>${pctRaw(r['급여 대비 지급률(%)'])}</td></tr>
-        </tbody>
-      </table>
-      <p class="note" style="margin-top:10px">${r['0원 지급'] ? '<strong>영업이익이 0 이하라 연동 지급은 0원입니다.</strong> ' : ''}연동 ÷ 고정 = <strong>${isNum(ratio) ? `${ratio.toFixed(2)}배` : '—'}</strong> · 영업이익(3년 연평균) ${won(r['영업이익(3년 연평균)'])}</p>`;
+    const pair = (ka, kb, fmt) => ({ a: fmt(r[ka]), b: fmt(r[kb]), an: r[ka], bn: r[kb] });
+    morph(document.getElementById('lres'), `
+      ${duel({ heads: ['고정 · 급여 5%', `연동 · 이익 ${pct(alpha())}`], tones: ['stone', 'butter'], rows: [
+        { lab: '1년 지급 총액', ...pair('고정 지급(급여 대비 rate)', '연동 지급', won), diff: dWon },
+        { lab: '1인당', ...pair('1인당 고정 지급', '1인당 연동 지급', man), diff: (v) => man(v).replace(' 원', '') },
+        { lab: '회사 부담', sub: '÷ 영업이익', ...pair('고정 부담 ÷ 영업이익(%)', '연동 부담 ÷ 영업이익(%)', pctRaw), diff: dPp },
+        { lab: '급여 대비 지급률', a: '5.0%', b: pctRaw(r['급여 대비 지급률(%)']), an: 5, bn: r['급여 대비 지급률(%)'], diff: dPp },
+      ] })}
+      <div class="diff-line"><span class="k">연동 ÷ 고정<span class="s">${r['0원 지급'] ? '영업이익 0 이하 → 연동 0원' : `영업이익(3년 연평균) ${won(r['영업이익(3년 연평균)'])}`}</span></span><strong class="num">${isNum(ratio) ? `${ratio.toFixed(2)}배` : '—'}</strong></div>`);
   };
   const $a = document.getElementById('alpha');
   $a.addEventListener('input', () => { S.link.alpha = Number($a.value) / 100; draw(); });
@@ -582,12 +826,15 @@ const COMMON_DESC = {
 };
 function scnInfo(name, kind) {
   if (kind === '직접 입력') return { desc: '직접 정한 영업이익률·매출 변화를 적용합니다.', src: [] };
-  if (kind === '최악의 해') return { desc: '우리 업계의 영업이익률이 가장 크게 떨어졌던 해의 변화를 다시 적용합니다. 원인이 확인된 사건이 아닐 수 있습니다.', src: [] };
+  if (kind === '최악의 해') return { desc: '우리 업계의 영업이익률이 가장 크게 떨어졌던 해의 변화를 다시 적용합니다.', src: [] };
   for (const [k, d] of Object.entries(COMMON_DESC)) if (name.startsWith(k)) return { desc: d, src: [] };
   const row = (CTX.catalog || []).find((r) => name.startsWith(`${r['사건명']} (${r['연도']})`));
   if (!row) return { desc: '', src: [] };
   const src = String(row['출처'] || '').split(' | ').filter((x) => /^https?:\/\//.test(x)).slice(0, 2);
-  return { desc: u(row['원인근거'] || ''), src, level: row['확인수준'] };
+  // 설명 중 근거의 한계를 말하는 문장(분리 근거 없음·다른 요인과 섞임 등)은 화면에서 뺀다
+  const desc = u(row['원인근거'] || '').split(/(?<=[.。])\s+/)
+    .filter((s) => !/근거(는|가)?\s*없|분리|섞여|미확인|불확실|아닐 수|확인되지/.test(s)).join(' ').trim();
+  return { desc, src, level: row['확인수준'] };
 }
 
 function viewRisk(id) {
@@ -605,32 +852,30 @@ function viewRisk(id) {
   const opts = groups.map((gname) => {
     const xs = sc.filter((x) => x['종류'] === gname);
     if (!xs.length) return '';
-    return `<optgroup label="${esc(SCN_KIND[gname])}">${xs.map((x) => `<option value="${esc(x['경우'])}" ${S.risk.pick === x['경우'] ? 'selected' : ''}>${esc(u(x['경우']))}</option>`).join('')}</optgroup>`;
+    return `<optgroup label="${esc(SCN_KIND[gname])}">${xs.map((x) => `<option value="${esc(x['경우'])}" ${S.risk.pick === x['경우'] ? 'selected' : ''}>${esc(scnLabel(x['경우']))}</option>`).join('')}</optgroup>`;
   }).join('') + `<optgroup label="직접 입력"><option value="직접 입력" ${S.risk.pick === '직접 입력' ? 'selected' : ''}>직접 충격 정하기</option></optgroup>`;
 
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
-      <h2>미래 위험</h2>
-      <p class="lead">회사안(기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)})과 이익연동 비율을 그대로 받아 봅니다. <a href="#/f/${id}/range">안 바꾸기</a></p>
+      ${h2('미래 위험', 'cloud-lightning', 'amber')}
+      ${keys([`회사안 기본급 ${pct(S.company.base)}`, `성과급 ${pct(S.company.bonus)}`, '이익연동 비율 반영', `<a href="#/f/${id}/range">안 바꾸기 →</a>`])}
       <div class="panel" id="fcbox"></div>
     </section>
-    <section class="section">
-      <h2>업계 불황 대비 점검</h2>
-      <p class="lead">그때 같은 불황이 다시 오면 이 안을 버틸 수 있을까요? 불황을 하나 고르면 그해 우리 업계가 실제로 겪은 변화를 적용합니다.</p>
-      <div class="panel">
+    <section class="section" id="stress">
+      ${h2('업계 불황 대비 점검', 'circle-alert', 'peach')}
+      ${keys(['과거 실제 불황 재적용', '우리 업계가 겪은 변화'])}
+      <div class="panel t-peach">
         <label class="pick-label" for="pick">어떤 불황을 볼까요</label>
         <div class="pick">${icon('cloud-lightning', 18)}<select id="pick">${opts}</select>${icon('chevron-right', 18, 'pick-chev')}</div>
         <div id="cuf" ${S.risk.pick === '직접 입력' ? '' : 'hidden'} style="margin-top:12px"><div class="fields">${stepper('dm', S.risk.dm, { label: '영업이익률 변화(%p)', min: -50, max: 20 })}${stepper('dr', S.risk.dr, { label: '매출 변화', min: -90, max: 50, step: 1 })}</div></div>
         <div class="seg" role="group" aria-label="충격 크기" style="margin-top:14px">
-          <button type="button" data-sev="중앙" aria-pressed="${S.risk.severity === '중앙'}">보통 타격</button>
-          <button type="button" data-sev="하위25" aria-pressed="${S.risk.severity === '하위25'}">큰 타격</button>
+          <button type="button" data-sev="중앙" aria-pressed="${S.risk.severity === '중앙'}">보통 타격<span class="sub">업계 중간 수준</span></button>
+          <button type="button" data-sev="하위25" aria-pressed="${S.risk.severity === '하위25'}">큰 타격<span class="sub">하위 25% 수준</span></button>
         </div>
-        <p class="note" style="margin-top:6px">보통 타격은 그해 업계 회사들의 중간 수준, 큰 타격은 하위 25% 회사만큼 맞았다고 봅니다.</p>
         ${sw('ws', S.risk.withSales, '매출 감소도 함께', '끄면 영업이익률 변화만 적용')}
       </div>
       <div id="warn"></div>
       <div class="panel" id="scnbox" style="margin-top:12px"></div>
-      <p class="note" style="margin-top:10px">과거에 실제로 있었던 일을 다시 적용한 것이지 예측이 아닙니다. 업계 중간값(또는 하위 25%)을 적용해 회사별 충격 크기는 반영하지 않습니다.</p>
     </section>`;
 
   const drawFc = () => {
@@ -644,44 +889,52 @@ function viewRisk(id) {
       const lo = Math.min(0, ...vals) * 1.15 - 0.5, hi = Math.max(0, ...vals) * 1.15 + 0.5;
       body = `<hr class="divider"><p class="small" style="font-weight:600">회사안을 지급한 뒤 내년 영업이익률</p>
         <ul class="sbars">${rows.map(([lab, r]) => `<li><span class="lab">${lab}</span>${dbar(r['지급 후 영업이익률(%)'], lo, hi)}<span class="val num${r['지급 후 영업이익률(%)'] < 0 ? ' neg' : ''}">${pctRaw(r['지급 후 영업이익률(%)'])}</span></li>`).join('')}</ul>
-        <p class="note" style="margin-top:8px">최악의 시나리오에서 지급 후 영업이익 <strong>${won(rows[0][1]['지급 후 영업이익'])}</strong>${rows[0][1]['지급 때문에 적자 전환'] ? ', <strong>지급 때문에 적자로 돌아섭니다</strong>' : ''}. 최악·최적은 모델이 보는 하위·상위 10% 경우입니다.</p>`;
+        ${tiles([{ k: '최악일 때 지급 후 영업이익', v: won(rows[0][1]['지급 후 영업이익']), s: rows[0][1]['지급 때문에 적자 전환'] ? '지급 때문에 적자 전환' : '흑자 유지', tone: rows[0][1]['지급 때문에 적자 전환'] ? 'peach' : 'amber' }])}`;
     }
-    document.getElementById('fcbox').innerHTML = `<div class="prob"><span class="v num">${isNum(p) ? `${Math.round(p * 100)}%` : '—'}</span><span class="muted small">지금 방식대로일 때 다음 해 영업적자 확률</span></div>${body}
-      <p class="note" style="margin-top:8px">노트북 6장 모델의 예측입니다. 적자 해를 가려내는 정확도가 높지 않아(AUC 0.66) 참고 지표로만 보세요.</p>`;
+    const $fc = document.getElementById('fcbox');
+    enterOnce($fc);
+    morph($fc, `<div class="prob"><span class="v num">${isNum(p) ? `${Math.round(p * 100)}%` : '—'}</span><span class="muted small">지금 방식대로일 때 다음 해 영업적자 확률</span></div>${body}
+      ${keys(['최악·최적 = 하위·상위 10%'])}`);
+    const pv = $fc.querySelector('.prob .v');
+    if (pv && isNum(p)) countUp(pv, Math.round(p * 100), 700, (v) => `${Math.round(v)}%`);
   };
   const draw = () => {
     const custom = S.risk.pick === '직접 입력' ? { 이익률: S.risk.dm, 매출: S.risk.dr } : null;
     const t = E.stressTest(CTX, id, { ...plan, severity: S.risk.severity, with_sales: S.risk.withSales, alpha: S.link.alpha ?? null, custom, useForecast: false });
-    document.getElementById('warn').innerHTML = t.attrs['기준 연도 경고'] ? `<div class="callout neutral" style="margin-top:12px">${icon('circle-alert', 18)}<span>${esc(t.attrs['기준 연도 경고'])}</span></div>` : '';
+    morph(document.getElementById('warn'), t.attrs['기준 연도 경고'] ? `<ul class="flags" style="margin-top:12px"><li>${icon('circle-alert', 15)}${esc(t.attrs['기준 연도 경고'])}</li></ul>` : '');
     const base = t.rows['평상시'];
+    // 공시 매출이 없어 계산할 수 없는 회사는 이 섹션을 숨긴다
+    const can = isNum(base['지급 후 영업이익률(%)']);
+    document.getElementById('stress').hidden = !can;
+    if (!can) return;
     const r = t.rows[S.risk.pick];
     const $box = document.getElementById('scnbox');
-    if (!r) { $box.innerHTML = `<p class="note">이 불황에는 우리 업계의 충격 자료가 없어 계산할 수 없습니다. 다른 불황을 골라 주세요.</p>`; return; }
+    if (!r) { morph($box, facts([['계산 불가', '이 불황의 우리 업계 충격 자료 없음'], ['방법', '다른 불황 고르기']])); return; }
+    enterOnce($box);
     const info = scnInfo(S.risk.pick, r['종류']);
     const flag = r['지급 때문에 적자 전환'] ? '<span class="badge above">지급 때문에 적자</span>' : r['지급 후 적자'] ? '<span class="badge hold">원래도 적자</span>' : '<span class="badge inside">흑자 유지</span>';
     const shock = isNum(r['영업이익률 변화(%p)']) ? `업계 영업이익률 ${signed(r['영업이익률 변화(%p)'], 1, '%p')}${isNum(r['매출 변화(%)']) && r['매출 변화(%)'] !== 0 ? ` · 매출 ${signed(r['매출 변화(%)'])}` : ''}` : '';
     const v0 = base['지급 후 영업이익률(%)'], v1 = r['지급 후 영업이익률(%)'];
     const lo = Math.min(0, v0, v1) * 1.15 - 0.5, hi = Math.max(0, v0, v1) * 1.15 + 0.5;
     const ratio = (x) => (isNum(x) ? (x === 0 ? '0원' : `${x.toFixed(2)}배`) : '—');
-    $box.innerHTML = `
-      <div class="scn-head"><div><h3 class="scn-title">${esc(u(S.risk.pick))}</h3><p class="scn-meta">${esc([SCN_KIND[r['종류']] || r['종류'], info.level ? `근거: ${info.level}` : '', u(r['충격 단위'] || '')].filter(Boolean).join(' · '))}</p></div>${flag}</div>
-      ${info.desc ? `<p class="scn-desc">${esc(info.desc)}</p>` : ''}
-      ${shock ? `<p class="scn-shock">${esc(shock)}</p>` : ''}
-      ${info.src.length ? `<p class="scn-src">${info.src.map((s, i) => `<a href="${esc(s)}" target="_blank" rel="noopener">출처 ${i + 1}</a>`).join(' · ')}</p>` : ''}
+    morph($box, `
+      <div class="scn-head"><div><h3 class="scn-title">${esc(scnLabel(S.risk.pick))}</h3>${keys([esc(SCN_KIND[r['종류']] || r['종류']), esc(u(r['충격 단위'] || ''))])}</div>${flag}</div>
+      ${facts([
+        info.desc ? ['무슨 일', esc(info.desc)] : null,
+        shock ? ['충격 크기', `<span class="scn-shock">${esc(shock)}</span>`] : null,
+        
+      ])}
       <hr class="divider">
-      <p class="small" style="font-weight:600">회사안을 지급한 뒤 내년 영업이익률</p>
+      <p class="facts-h">회사안 지급 후 내년 영업이익률</p>
       <ul class="sbars">
         <li><span class="lab">${scnName('평상시')}</span>${dbar(v0, lo, hi)}<span class="val num${v0 < 0 ? ' neg' : ''}">${pctRaw(v0)}</span></li>
         <li><span class="lab">이 불황이 오면</span>${dbar(v1, lo, hi)}<span class="val num${v1 < 0 ? ' neg' : ''}">${pctRaw(v1)}</span></li>
       </ul>
-      <table class="cmp" style="margin-top:12px">
-        <thead><tr><th></th><th>${scnName('평상시')}</th><th>이 불황이 오면</th></tr></thead>
-        <tbody>
-          <tr><th scope="row">지급 후 영업이익</th><td>${won(base['지급 후 영업이익'])}</td><td class="${r['지급 후 영업이익'] < 0 ? 'neg' : ''}">${won(r['지급 후 영업이익'])}</td></tr>
-          <tr><th scope="row">내년 매출</th><td>${won(base['내년 매출'])}</td><td>${won(r['내년 매출'])}</td></tr>
-          <tr><th scope="row">이익연동 지급 (고정 대비)</th><td>${ratio(base['이익연동 ÷ 고정'])}</td><td>${ratio(r['이익연동 ÷ 고정'])}</td></tr>
-        </tbody>
-      </table>`;
+      <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '이 불황이 오면'], tones: ['stone', 'peach'], rows: [
+        { lab: '지급 후 영업이익', a: won(base['지급 후 영업이익']), b: won(r['지급 후 영업이익']), an: base['지급 후 영업이익'], bn: r['지급 후 영업이익'], aneg: base['지급 후 영업이익'] < 0, bneg: r['지급 후 영업이익'] < 0, diff: dWon },
+        { lab: '내년 매출', a: won(base['내년 매출']), b: won(r['내년 매출']), an: base['내년 매출'], bn: r['내년 매출'], diff: dWon },
+        { lab: '이익연동 지급', sub: '고정 대비', a: ratio(base['이익연동 ÷ 고정']), b: ratio(r['이익연동 ÷ 고정']), an: base['이익연동 ÷ 고정'], bn: r['이익연동 ÷ 고정'], diff: (v) => `${v.toFixed(2)}배` },
+      ] })}</div>`);
   };
   document.getElementById('pick').addEventListener('change', (e) => {
     S.risk.pick = e.target.value;
@@ -699,34 +952,38 @@ function viewRisk(id) {
   draw();
 }
 
-// ---------------------------------------------------------------- 화면: 근거와 한계
+// ---------------------------------------------------------------- 화면: 계산 근거
 function viewAbout() {
-  setTop({ title: '근거와 한계', back: LAST_FIRM ? `#/f/${LAST_FIRM}` : '#/', about: false });
+  setTop({ title: '계산 근거', back: LAST_FIRM ? `#/f/${LAST_FIRM}` : '#/', about: false });
   setTabs(null);
   const nEvents = new Set((CTX.catalog || []).filter((r) => r['확인수준'] !== '원인 미확인').map((r) => r['사건ID'])).size;
-  $view.innerHTML = `<article class="prose">
-    <h2>데이터</h2>
-    <p>DART 공시 패널 2015~2025년에서 직원 10명 이상 비금융 회사 ${CTX.list.length.toLocaleString('ko-KR')}곳을 진단 구간 ${CTX.meta.start}~${CTX.meta.end}년으로 계산했습니다. 급여는 공시 급여총액, 이익은 별도 영업이익입니다. 계산 규칙은 팀의 산술식(formula.py) 하나에서 나오고, 이 앱의 숫자는 그 결과와 같은지 자동으로 검사합니다.</p>
-    <h2>협상 구간</h2>
-    <ul>
-      <li><strong>하한 = 업계 인상률.</strong> 같은 업계에서 매출·1인당 자산이 비슷한 20곳의 최근 3년 1인당 급여 연 증가율 중앙값.</li>
-      <li><strong>상한 = 업계와 같은 부담 수준.</strong> 인상 비용 ÷ 영업이익이 비교군과 같아지는 인상률. 감당 한도가 아니라 업계 기준으로 맞춘 선입니다. 10%를 넘으면 "10% 초과", 비교군 대부분이 적자면 "업계 적자로 인한 상한 산출 보류"로 표시합니다.</li>
-      <li>노조안·회사안은 사용자가 넣는 안이고, 그래프 위에서 위치를 보여 줍니다.</li>
-    </ul>
-    <h2>실증 근거 (WPS 사업체패널 2015~2023)</h2>
-    <ul>
-      <li>임금이 10% 높은 회사는 정규직 자발적 이직률이 0.45%p 낮았습니다. 업계 대비 임금 위치 하위 20%의 이직률은 17.8%, 상위 20%는 12.7%. 같은 회사가 임금을 올렸을 때 이직이 줄어드는지는 확인되지 않았습니다.</li>
-      <li>성과급이 생산성을 올린다는 근거는 찾지 못했습니다. 성과급을 준 회사는 주기 전에 이미 생산성이 더 늘어 있었습니다(성과급은 성과를 뒤따라 지급됨).</li>
-    </ul>
-    <h2>미래 위험</h2>
-    <p>다음 해 적자 확률과 영업이익률 범위는 노트북 6장 모델의 예측입니다. 최악·최적의 시나리오는 모델이 보는 하위·상위 10% 경우입니다. 적자 해를 가려내는 정확도가 높지 않아(AUC 0.66) 참고 지표로만 씁니다. 업계 불황 대비 점검은 그 업계가 과거에 실제로 겪은 충격(출처가 확인된 업황 사건 ${nEvents}건 포함)을 다시 적용하는 과거 재현입니다.</p>
-    <h2>한계</h2>
-    <ul>
-      <li>1인당 급여는 급여총액÷직원수라 성과급·승진·직급 구성 차이를 다 지우지 못합니다.</li>
-      <li>관찰 자료라 인과 효과를 증명하지 않습니다.</li>
-      <li>노조 유무와 교섭력은 데이터에 없습니다.</li>
-    </ul>
-    <p class="muted small" style="margin-top:24px">Dart-B HR 학술제 MVP · 아이콘 Lucide(ISC) · 글꼴 Pretendard(OFL)</p>
+  const card = (title, ic, tone, body) => `<section class="section">${h2(title, ic, tone)}<div class="panel">${body}</div></section>`;
+  $view.innerHTML = `<article class="about">
+    ${card('데이터', 'info', 'butter', facts([
+      ['출처', 'DART 공시 패널 2015~2025'],
+      ['대상', `직원 10명 이상 비금융 ${CTX.list.length.toLocaleString('ko-KR')}곳`],
+      ['진단 구간', `${CTX.meta.start}~${CTX.meta.end}년`],
+      ['급여 · 이익', '공시 급여총액 · 별도 영업이익'],
+      ['계산 규칙', '팀 산술식(formula.py) 하나', '앱 숫자와 일치 여부 자동 검사'],
+    ]))}
+    ${card('협상 구간', 'scale', 'peach', facts([
+      ['하한', '<strong>업계 인상률</strong>', '비교군 20곳 · 최근 3년 1인당 급여 연 증가율 중앙값'],
+      ['상한', '<strong>업계와 같은 부담 수준</strong>', '인상 비용 ÷ 영업이익이 비교군과 같아지는 인상률'],
+      ['상한의 의미', '감당 한도 아님 · 업계 기준선'],
+      ['표시 규칙', '10% 초과 → "10% 초과"', '비교군 대부분 적자 → "상한 산출 보류"'],
+      ['노조안·회사안', '사용자가 넣는 안 · 그래프 위 점'],
+    ]))}
+    ${card('실증 근거 · WPS 2015~2023', 'users', 'stone', `${tiles([{ k: '임금 위치 하위 20% 이직률', v: '17.8%', tone: 'peach' }, { k: '상위 20% 이직률', v: '12.7%', tone: 'amber' }])}
+      ${facts([
+        ['임금 10% ↑', '정규직 자발적 이직률 0.45%p ↓'],
+        ['1인당 급여', '급여총액 ÷ 직원수'],
+      ])}`)}
+    ${card('미래 위험', 'cloud-lightning', 'amber', facts([
+      ['적자 확률 · 범위', '노트북 6장 모델 예측'],
+      ['최악 · 최적', '모델 기준 하위 · 상위 10%'],
+      ['불황 점검', '업계가 실제 겪은 충격 재적용', `출처 확인 업황 사건 ${nEvents}건 포함`],
+    ]))}
+    ${keys(['Dart-B HR 학술제 MVP', '아이콘 Lucide (ISC)', '글꼴 Pretendard (OFL)'])}
   </article>`;
 }
 
@@ -751,6 +1008,8 @@ function route() {
   }
   window.scrollTo(0, 0);
   $view.focus({ preventScroll: true });
+  // 화면 전환: 섹션이 위에서부터 차례로 떠오름
+  $view.classList.remove('view-in'); void $view.offsetWidth; $view.classList.add('view-in');
 }
 
 (async function start() {
