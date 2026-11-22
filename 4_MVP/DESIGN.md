@@ -23,6 +23,16 @@ colors:
   on-dark-muted: "#CFCCC4"
   bar-gray: "#CFCFCB"
   bar-gray-deep: "#B5B5B1"
+  orange: "#FF8A3D"
+  ruler-behind: "#DCDCD9"
+  ruler-over: "#FFB07A"
+  tint-butter: "#FFF1C2"
+  tint-butter-ink: "#6E4E00"
+  tint-stone-ink: "#3D3D3D"
+  tint-amber: "#FFE6A8"
+  tint-amber-ink: "#7A4A00"
+  bar-stone: "#9A9A96"
+  bar-amber: "#F2B233"
 typography:
   display:
     fontFamily: "Pretendard Variable, Pretendard, -apple-system, Apple SD Gothic Neo, Malgun Gothic, sans-serif"

@@ -59,6 +59,7 @@ for (const c of gold.cases) {
   const co = c.compare_offers;
   same(co.out, E.compareOffers(ctx, id, co.args.union, co.args.company), `${p}/compare_offers`);
   c.profit_link_plan.forEach((t, i) => same(t.out, E.profitLinkPlan(ctx, id, t.args), `${p}/profit_link_plan[${i}]`));
+  (c.demand_to_salary || []).forEach((t, i) => same(t.out, E.demandToSalary(ctx, id, t.args), `${p}/demand_to_salary[${i}]`));
   same(c.pay_plan_forecast.out, E.payPlanForecast(ctx, id, c.pay_plan_forecast.args), `${p}/pay_plan_forecast`);
   same(c.scenarios, E.scenarios(ctx, id), `${p}/scenarios`);
   c.stress_test.forEach((t, i) => same(t.out, E.stressTest(ctx, id, t.args), `${p}/stress_test[${i}]`));

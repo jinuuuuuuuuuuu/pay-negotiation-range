@@ -60,7 +60,7 @@ function st(id) {
       union: { base: r05(lo + 0.02), bonus: 0 },
       company: { base: r05(lo - 0.01), bonus: 0.01 },
       override: null, headcount: 0, sales: 0,
-      link: { alpha: null },
+      link: { mode: 'rate', rate: CTX.C.PAY_RATE, amount: null, demand: 0.10 },
       risk: { severity: '중앙', withSales: true, pick: null, dm: -0.03, dr: -0.10 },
     });
   }
@@ -101,7 +101,7 @@ function setTop({ title = '', back = null, dark = false, about = true } = {}) {
 function setTabs(id, active) {
   if (!id) { $tabs.hidden = true; $view.classList.add('no-tabs'); return; }
   $tabs.hidden = false; $view.classList.remove('no-tabs');
-  const t = [['', '요약', 'house'], ['/range', '협상 구간', 'scale'], ['/link', '이익연동', 'coins'], ['/risk', '미래 위험', 'cloud-lightning']];
+  const t = [['', '요약', 'house'], ['/range', '협상 구간', 'scale'], ['/link', '기준 환산', 'coins'], ['/risk', '미래 위험', 'cloud-lightning']];
   $tabs.innerHTML = t.map(([p, l, ic]) => `<a class="tab" href="#/f/${id}${p}" ${active === p ? 'aria-current="page"' : ''}>${icon(ic, 22)}<span>${l}</span></a>`).join('');
 }
 
@@ -695,7 +695,7 @@ function viewRange(id) {
       ${h2('두 안 비교', 'git-compare-arrows', 'butter')}
       <div class="panel" id="cmpbox"></div>
       <div class="row" style="margin-top:12px;gap:10px">
-        <a class="btn secondary half" href="#/f/${id}/link">${icon('coins', 18)}이익연동이면</a>
+        <a class="btn secondary half" href="#/f/${id}/link">${icon('coins', 18)}이익 기준 환산</a>
         <a class="btn secondary half" href="#/f/${id}/risk">${icon('cloud-lightning', 18)}불황이 오면</a>
       </div>
     </section>`;
@@ -714,8 +714,8 @@ function viewRange(id) {
     const state = rng['상한 상태'];
     let interp;
     const callout = (ic, title, tags, tone = '') => `<div class="callout${tone}">${icon(ic, 18)}<div><strong>${title}</strong>${keys(tags)}</div></div>`;
-    if (state === CTX.C.RANGE_HOLD_TEXT) interp = callout('circle-alert', '업계 적자 → 상한 산출 보류', ['비교군 대부분 적자', '하한만 참고', '이익연동 전환 검토'], ' neutral');
-    else if (state === '3년 합산 영업적자') interp = callout('circle-alert', '3년 합산 영업적자 → 상한 0%', ['우리 부담선 없음', '이익연동 전환 검토']);
+    if (state === CTX.C.RANGE_HOLD_TEXT) interp = callout('circle-alert', '업계 적자 → 상한 산출 보류', ['비교군 대부분 적자', '하한만 참고', '이익 기준 성과급 검토 · 기준 환산 탭'], ' neutral');
+    else if (state === '3년 합산 영업적자') interp = callout('circle-alert', '3년 합산 영업적자 → 상한 0%', ['우리 부담선 없음', '이익 기준 성과급 검토 · 기준 환산 탭']);
     else interp = callout('scale', esc(rng['구간 해석']), [
       state === '적자 전환 직전에서 제한' ? '마지막 해 영업이익 한도에서 멈춤' : '',
       rng['상한'] > CTX.C.RANGE_UPPER_SHOW_MAX ? '상한 10% 초과 → "10% 초과" 표시' : '',
@@ -768,54 +768,135 @@ function sw(key, on, title, desc = '') {
     <label class="switch"><input type="checkbox" data-sw="${key}" ${on ? 'checked' : ''} aria-labelledby="lb-${key}"><span></span></label></div>`;
 }
 
-// ---------------------------------------------------------------- 화면: 이익연동 전환
+// ---------------------------------------------------------------- 화면: 급여 기준 ↔ 이익 기준 환산 (기능 3)
+// 지금 성과급 입력값 → 엔진 인자 (급여 대비 % 또는 올해 총액)
+function linkArgs(S) {
+  return S.link.mode === 'amount' && isNum(S.link.amount) ? { amount: S.link.amount } : { rate: S.link.rate };
+}
+// 기능 4로 넘길 급여 대비 비율 (총액 입력이면 마지막 해 급여총액으로 나눔)
+function linkRate(id) {
+  return E.profitLinkPlan(CTX, id, linkArgs(st(id)))['현재 지급률(급여 대비)'];
+}
+
 function viewLink(id) {
   const f = CTX.firms.get(id);
   const S = st(id);
   setTop({ title: f.name, back: '#/' });
   setTabs(id, '/link');
-  const aStar = f.alpha_star;
-  const a0 = S.link.alpha ?? (isNum(aStar) ? aStar : 0.05);
-  const maxA = Math.max(0.3, isNum(aStar) ? aStar * 2.5 : 0.3);
+  const L = S.link;
+  const eok = isNum(L.amount) ? String(Math.round(L.amount / 1e8)) : (isNum(f.S_T) ? String(Math.round((L.rate * f.S_T) / 1e8)) : '');
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
-      ${h2('이익연동 전환', 'coins', 'stone')}
-      ${keys(['지금: 급여의 5% 고정', '바꾸면: 영업이익의 n%', '기준: 3년 연평균'])}
-      ${isNum(aStar) ? tiles([{ k: '시작값', v: `영업이익의 ${pct(aStar)}`, s: '= 지금 고정 지급과 같은 금액', tone: 'butter' }])
-        : `<div class="callout neutral">${icon('circle-alert', 18)}<div><strong>3년 합산 영업적자</strong>${keys(['시작값 계산 안 함', '이익 날 때까지 연동 지급 0원'])}</div></div>`}
+      ${h2('급여 기준 ↔ 이익 기준 환산', 'coins', 'butter')}
+      ${keys(['지금 성과급 → 영업이익의 %', '노조 요구 → 급여의 %', '기준: 3년 연평균'])}
     </section>
     <section class="section">
       <div class="panel t-stone">
-        <div class="row between"><label for="alpha" class="t" style="font-weight:600">영업이익 대비 지급 비율</label><strong class="num" id="alv">${pct(a0)}</strong></div>
-        <input class="slider" id="alpha" type="range" min="0" max="${(maxA * 100).toFixed(1)}" step="0.1" value="${(a0 * 100).toFixed(1)}">
-        ${isNum(aStar) ? `<button class="chip" id="reset" type="button">시작값 ${pct(aStar)}로</button>` : ''}
+        <p class="facts-h" style="margin:0 0 10px">지금 주는 성과급</p>
+        <div class="seg" role="group" aria-label="입력 방식">
+          <button type="button" data-mode="rate" aria-pressed="${L.mode !== 'amount'}">급여의 %</button>
+          <button type="button" data-mode="amount" aria-pressed="${L.mode === 'amount'}">올해 총액</button>
+        </div>
+        <div style="margin-top:12px">
+          <div id="m-rate" ${L.mode === 'amount' ? 'hidden' : ''}>${stepper('lr', L.rate, { label: '급여 대비 성과급', step: 0.5, max: 200 })}</div>
+          <div id="m-amount" ${L.mode === 'amount' ? '' : 'hidden'}><div class="field"><label for="in-amt">올해 성과급 총액</label>
+            <div class="stepper"><span class="inp" style="grid-column:1 / -1"><input id="in-amt" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${eok}"><span class="unit">억 원</span></span></div></div></div>
+        </div>
+        <div style="margin-top:10px">${keys(['직접 입력', '기본값: 급여의 5%'])}</div>
       </div>
     </section>
     <section class="section">
-      ${h2('고정 vs 연동', 'git-compare-arrows', 'amber')}
-      <div class="panel" id="lres"></div>
-      <div class="panel t-amber" style="margin-top:12px">${facts([['연동 부담 ÷ 영업이익', '= 비율 × 1.1', '흑자일 때 어느 회사나 같음'], ['회사마다 다른 것', '직원의 급여 대비 지급률']])}</div>
-      <a class="btn secondary" href="#/f/${id}/risk" style="margin-top:12px">${icon('cloud-lightning', 18)}불황이 오면 연동 지급은?</a>
+      ${h2('같은 금액이 되는 영업이익 비율', 'scale', 'amber')}
+      <div class="panel" id="conv"></div>
+    </section>
+    <section class="section">
+      ${h2('노조 요구를 급여로 환산', 'users', 'peach')}
+      <div class="panel">
+        ${stepper('dn', L.demand, { label: '노조 요구(영업이익 대비)', step: 1, max: 100 })}
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${[0.10, 0.15, 0.30].map((v) => `<button class="chip" type="button" data-dn="${v}">영업이익의 ${pct(v, 0)}</button>`).join('')}</div>
+        <div id="dres" style="margin-top:16px"></div>
+      </div>
+    </section>
+    <section class="section" id="lrisk-sec">
+      ${h2('이익 기준으로 바꾸면 (3년)', 'cloud-lightning', 'stone')}
+      ${keys(['회사: 이익 줄면 부담도 줄어듦', '직원: 받는 돈이 해마다 달라짐'])}
+      <div class="panel" id="lrisk"></div>
+      <a class="btn secondary" href="#/f/${id}/risk" style="margin-top:12px">${icon('cloud-lightning', 18)}불황이 오면 이익 기준 성과급은?</a>
     </section>`;
-  const alpha = () => S.link.alpha ?? (isNum(aStar) ? aStar : 0.05);
+
   const draw = () => {
-    const r = E.profitLinkPlan(CTX, id, { alpha: alpha() });
-    document.getElementById('alv').textContent = pct(alpha());
-    const ratio = r['연동 ÷ 고정'];
-    const pair = (ka, kb, fmt) => ({ a: fmt(r[ka]), b: fmt(r[kb]), an: r[ka], bn: r[kb] });
-    morph(document.getElementById('lres'), `
-      ${duel({ heads: ['고정 · 급여 5%', `연동 · 이익 ${pct(alpha())}`], tones: ['stone', 'butter'], rows: [
-        { lab: '1년 지급 총액', ...pair('고정 지급(급여 대비 rate)', '연동 지급', won), diff: dWon },
-        { lab: '1인당', ...pair('1인당 고정 지급', '1인당 연동 지급', man), diff: (v) => man(v).replace(' 원', '') },
-        { lab: '회사 부담', sub: '÷ 영업이익', ...pair('고정 부담 ÷ 영업이익(%)', '연동 부담 ÷ 영업이익(%)', pctRaw), diff: dPp },
-        { lab: '급여 대비 지급률', a: '5.0%', b: pctRaw(r['급여 대비 지급률(%)']), an: 5, bn: r['급여 대비 지급률(%)'], diff: dPp },
-      ] })}
-      <div class="diff-line"><span class="k">연동 ÷ 고정<span class="s">${r['0원 지급'] ? '영업이익 0 이하 → 연동 0원' : `영업이익(3년 연평균) ${won(r['영업이익(3년 연평균)'])}`}</span></span><strong class="num">${isNum(ratio) ? `${ratio.toFixed(2)}배` : '—'}</strong></div>`);
+    const args = linkArgs(S);
+    const r = E.profitLinkPlan(CTX, id, args);
+    const rate = r['현재 지급률(급여 대비)'];
+    const aEq = r['같은 금액 비율(3년 평균 기준)'], aT = r['같은 금액 비율(작년 기준)'];
+    let gap = '';
+    if (isNum(aEq) && isNum(aT) && Math.abs(aT / aEq - 1) >= 0.2) {
+      gap = aT < aEq
+        ? `<div class="callout neutral" style="margin-top:12px">${icon('circle-alert', 18)}<div><strong>작년 이익 &gt; 3년 평균</strong>${keys(['작년 기준 비율이 더 작음', '작년 기준으로 합의 → 이익이 평년으로 돌아오면 성과급 감소'])}</div></div>`
+        : `<div class="callout neutral" style="margin-top:12px">${icon('circle-alert', 18)}<div><strong>작년 이익 &lt; 3년 평균</strong>${keys(['작년 기준 비율이 더 큼', '작년 기준으로 합의 → 이익이 회복되면 성과급 크게 증가'])}</div></div>`;
+    }
+    morph(document.getElementById('conv'), isNum(aEq) && f.OP_avg > 0 ? `
+      <div class="card-top"><span class="cap">급여의 ${pct(rate)}와 같은 금액</span></div>
+      <p class="wage-claim num"><span class="big-unit">영업이익의</span><span class="big-num">${pct(aEq)}</span></p>
+      ${tiles([
+        { k: '3년 평균 기준 · 권장', v: pct(aEq), tone: 'butter' },
+        isNum(aT) ? { k: '작년 한 해 기준', v: pct(aT), tone: 'stone' } : null,
+        { k: '1년 성과급', v: won(r['고정 지급(급여 대비 rate)']), s: `1인당 ${man(r['1인당 고정 지급'])}`, tone: 'amber' },
+      ])}
+      ${gap}`
+      : facts([['3년 합산 영업적자', '같은 금액 비율 계산 불가'], ['이익 기준으로 바꾸면', '이익 날 때까지 성과급 0원']]));
+
+    const d = E.demandToSalary(CTX, id, { n: L.demand, ...args });
+    const k = d['요구 ÷ 현재'];
+    morph(document.getElementById('dres'), f.OP_avg > 0 ? `
+      <div class="card-top"><span class="cap">영업이익의 ${pct(L.demand, 0)}는</span></div>
+      <p class="wage-claim num"><span class="big-unit">급여의</span><span class="big-num">${pctRaw(d['요구 급여 대비 지급률(%)'])}</span></p>
+      ${tiles([
+        { k: '1년 총액', v: won(d['요구 지급']), tone: 'peach' },
+        { k: '1인당', v: man(d['1인당 요구 지급']), tone: 'stone' },
+        isNum(k) ? { k: '지금 성과급의', v: `${k.toFixed(1)}배`, tone: 'butter' } : null,
+      ])}`
+      : facts([['3년 합산 영업적자', '요구액 0원']]));
+
+    // 3년 모델 예측: 0원인 해·흔들림은 비율과 무관, 비용은 지급률에 비례 (예측 대상이 아니면 섹션을 숨김)
+    const fr = CTX.fc.get(id);
+    const K = '3년·같은 예산 이익연동(α)_', X = '3년·급여총액 5%_';
+    const sc = rate / CTX.C.PAY_RATE;
+    const ok = !!fr && isNum(fr[`${K}0원인 해 생김`]);
+    document.getElementById('lrisk-sec').hidden = !ok;
+    if (!ok) return;
+    const cost = (v) => (isNum(v) ? v * 1e8 * sc : NaN);
+    const pp = (v) => `${(v * 100).toFixed(0)}%p`;
+    const row = (lab, sub, key) => ({ lab, sub, a: pct(fr[X + key], 0), b: pct(fr[K + key], 0), an: fr[X + key], bn: fr[K + key], diff: pp });
+    const rowC = (lab, sub, key) => { const a = cost(fr[X + key]), b = cost(fr[K + key]); return { lab, sub, a: won(a), b: won(b), an: a, bn: b, diff: dWon }; };
+    morph(document.getElementById('lrisk'), duel({ heads: ['지금 · 급여 기준', '이익 기준'], tones: ['stone', 'butter'], rows: [
+      row('성과급 0원인 해', '3년 안에 생길 확률', '0원인 해 생김'),
+      row('1인당 수령액 변동', '해마다 흔들리는 정도', '1인당 수령 변동계수'),
+      rowC('3년 비용', '보통', '3년 비용 P50(억)'),
+      rowC('3년 비용', '많을 때', '3년 비용 P90(억)'),
+    ] }));
   };
-  const $a = document.getElementById('alpha');
-  $a.addEventListener('input', () => { S.link.alpha = Number($a.value) / 100; draw(); });
-  const $r = document.getElementById('reset');
-  if ($r) $r.addEventListener('click', () => { S.link.alpha = null; $a.value = (aStar * 100).toFixed(1); draw(); });
+
+  const get = (k) => (k === 'lr' ? L.rate : L.demand);
+  const set = (k, v) => { if (k === 'lr') L.rate = v; else L.demand = v; };
+  bindSteppers($view, get, set, draw);
+  $view.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    L.mode = b.dataset.mode;
+    $view.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.getElementById('m-rate').hidden = L.mode === 'amount';
+    document.getElementById('m-amount').hidden = L.mode !== 'amount';
+    if (L.mode === 'amount' && !isNum(L.amount)) { const n = parseNum(document.getElementById('in-amt').value); if (Number.isFinite(n) && n > 0) L.amount = n * 1e8; }
+    draw();
+  }));
+  document.getElementById('in-amt').addEventListener('input', (e) => {
+    const n = parseNum(e.target.value);
+    if (Number.isFinite(n) && n > 0) { L.amount = n * 1e8; draw(); }
+  });
+  $view.querySelectorAll('[data-dn]').forEach((b) => b.addEventListener('click', () => {
+    L.demand = Number(b.dataset.dn);
+    document.getElementById('in-dn').value = (L.demand * 100).toFixed(1);
+    draw();
+  }));
   draw();
 }
 
@@ -858,7 +939,7 @@ function viewRisk(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       ${h2('미래 위험', 'cloud-lightning', 'amber')}
-      ${keys([`회사안 기본급 ${pct(S.company.base)}`, `성과급 ${pct(S.company.bonus)}`, '이익연동 비율 반영', `<a href="#/f/${id}/range">안 바꾸기 →</a>`])}
+      ${keys([`회사안 기본급 ${pct(S.company.base)}`, `성과급 ${pct(S.company.bonus)}`, `지금 성과급 급여의 ${pct(linkRate(id))} → 이익 기준`, `<a href="#/f/${id}/range">안 바꾸기 →</a>`])}
       <div class="panel" id="fcbox"></div>
     </section>
     <section class="section" id="stress">
@@ -900,7 +981,7 @@ function viewRisk(id) {
   };
   const draw = () => {
     const custom = S.risk.pick === '직접 입력' ? { 이익률: S.risk.dm, 매출: S.risk.dr } : null;
-    const t = E.stressTest(CTX, id, { ...plan, severity: S.risk.severity, with_sales: S.risk.withSales, alpha: S.link.alpha ?? null, custom, useForecast: false });
+    const t = E.stressTest(CTX, id, { ...plan, severity: S.risk.severity, with_sales: S.risk.withSales, rate: linkRate(id), custom, useForecast: false });
     morph(document.getElementById('warn'), t.attrs['기준 연도 경고'] ? `<ul class="flags" style="margin-top:12px"><li>${icon('circle-alert', 15)}${esc(t.attrs['기준 연도 경고'])}</li></ul>` : '');
     const base = t.rows['평상시'];
     // 공시 매출이 없어 계산할 수 없는 회사는 이 섹션을 숨긴다
@@ -933,7 +1014,7 @@ function viewRisk(id) {
       <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '이 불황이 오면'], tones: ['stone', 'peach'], rows: [
         { lab: '지급 후 영업이익', a: won(base['지급 후 영업이익']), b: won(r['지급 후 영업이익']), an: base['지급 후 영업이익'], bn: r['지급 후 영업이익'], aneg: base['지급 후 영업이익'] < 0, bneg: r['지급 후 영업이익'] < 0, diff: dWon },
         { lab: '내년 매출', a: won(base['내년 매출']), b: won(r['내년 매출']), an: base['내년 매출'], bn: r['내년 매출'], diff: dWon },
-        { lab: '이익연동 지급', sub: '고정 대비', a: ratio(base['이익연동 ÷ 고정']), b: ratio(r['이익연동 ÷ 고정']), an: base['이익연동 ÷ 고정'], bn: r['이익연동 ÷ 고정'], diff: (v) => `${v.toFixed(2)}배` },
+        { lab: '이익 기준 성과급', sub: '지금 대비', a: ratio(base['이익연동 ÷ 고정']), b: ratio(r['이익연동 ÷ 고정']), an: base['이익연동 ÷ 고정'], bn: r['이익연동 ÷ 고정'], diff: (v) => `${v.toFixed(2)}배` },
       ] })}</div>`);
   };
   document.getElementById('pick').addEventListener('change', (e) => {
