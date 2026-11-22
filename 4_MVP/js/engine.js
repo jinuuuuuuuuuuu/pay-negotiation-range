@@ -196,14 +196,25 @@ function linkPay(alpha, op, s, cap, floor) {
   return pay;
 }
 
-export function profitLinkPlan(ctx, id, { alpha = null, cap = null, floor = null } = {}) {
+// 지금 성과급(급여 대비 rate 또는 올해 총액 amount)을 급여 대비 비율로
+function currentRate(ctx, f, rate, amount) {
+  if (amount !== null && amount !== undefined) return f.S_T > 0 ? amount / f.S_T : NaN;
+  return rate === null || rate === undefined ? ctx.C.PAY_RATE : rate;
+}
+
+// 급여 기준 ↔ 이익 기준 환산: 지금 급여의 rate로 주는 성과급과 같은 금액이 되는 '영업이익의 α'
+export function profitLinkPlan(ctx, id, { alpha = null, cap = null, floor = null, rate = null, amount = null } = {}) {
   const f = ctx.firms.get(id);
-  const rate = ctx.C.PAY_RATE, c = ctx.C.OVERHEAD_C;
-  const a = alpha === null ? f.alpha_star : alpha;
+  const c = ctx.C.OVERHEAD_C;
+  rate = currentRate(ctx, f, rate, amount);
+  const aEq = isNum(f.alpha_star) ? (f.alpha_star * rate) / ctx.C.PAY_RATE : NaN;
+  const aEqT = f.OP_T > 0 ? (rate * f.S_T) / f.OP_T : NaN;
+  const a = alpha === null ? aEq : alpha;
   const S = f.S_avg, N = f.N_avg, OP = f.OP_avg;
   const fixed = rate * S;
   const pay = linkPay(a, OP, S, cap, floor);
   return {
+    '현재 지급률(급여 대비)': rate, '같은 금액 비율(3년 평균 기준)': aEq, '같은 금액 비율(작년 기준)': aEqT,
     '적용 비율(영업이익 대비)': a, '상한(급여 대비)': cap, '하한(급여 대비)': floor,
     '영업이익(3년 연평균)': OP,
     '고정 지급(급여 대비 rate)': fixed, '연동 지급': pay, '연동 ÷ 고정': fixed > 0 ? pay / fixed : NaN,
@@ -213,6 +224,23 @@ export function profitLinkPlan(ctx, id, { alpha = null, cap = null, floor = null
     '연동 부담 ÷ 영업이익(%)': isNum(pay) && OP > 0 ? ((pay * (1 + c)) / OP) * 100 : NaN,
     '고정 부담 ÷ 영업이익(%)': OP > 0 ? ((fixed * (1 + c)) / OP) * 100 : NaN,
     '0원 지급': isNum(OP) && OP <= 0 && (floor === null || floor === undefined),
+  };
+}
+
+// 거꾸로 환산: 노조가 요구한 '영업이익의 n'은 급여 대비 몇 %인가 (3년 연평균 기준)
+export function demandToSalary(ctx, id, { n, rate = null, amount = null } = {}) {
+  const f = ctx.firms.get(id);
+  const c = ctx.C.OVERHEAD_C;
+  rate = currentRate(ctx, f, rate, amount);
+  const S = f.S_avg, N = f.N_avg, OP = f.OP_avg;
+  const pay = isNum(OP) ? n * Math.max(OP, 0) : NaN;
+  const now = rate * S;
+  return {
+    '요구 비율(영업이익 대비)': n, '요구 지급': pay,
+    '요구 급여 대비 지급률(%)': S > 0 ? (pay / S) * 100 : NaN,
+    '현재 지급': now, '요구 ÷ 현재': now > 0 ? pay / now : NaN,
+    '1인당 요구 지급': N > 0 ? pay / N : NaN,
+    '요구 부담 ÷ 영업이익(%)': isNum(OP) && OP > 0 ? n * (1 + c) * 100 : NaN,
   };
 }
 
@@ -297,10 +325,10 @@ export function scenarios(ctx, id) {
 }
 
 export function stressTest(ctx, id, { base_raise = 0, bonus = 0, headcount = 0, sales_growth = 0, alpha = null, cap = null,
-  floor = null, severity = '중앙', with_sales = true, custom = null, useForecast = true } = {}) {
+  floor = null, severity = '중앙', with_sales = true, custom = null, useForecast = true, rate = null } = {}) {
   const f = ctx.firms.get(id);
   const plan = payPlan(ctx, id, { base_raise, bonus, headcount, sales_growth });
-  const link = profitLinkPlan(ctx, id, { alpha, cap, floor });
+  const link = profitLinkPlan(ctx, id, { alpha, cap, floor, rate });
   const dW = plan['회사 부담 증가(1년)'], REV1 = plan['내년 매출'];
   const mT = f.REV_T > 0 ? f.OP_T / f.REV_T : NaN;
   const mAvg = f.REV_avg > 0 ? f.OP_avg / f.REV_avg : NaN;

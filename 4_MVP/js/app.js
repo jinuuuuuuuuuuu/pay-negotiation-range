@@ -58,7 +58,7 @@ function st(id) {
       union: { base: r05(lo + 0.02), bonus: 0 },
       company: { base: r05(lo - 0.01), bonus: 0.01 },
       override: null, headcount: 0, sales: 0,
-      link: { alpha: null },
+      link: { mode: 'rate', rate: CTX.C.PAY_RATE, amount: null, demand: 0.10 },
       risk: { severity: '중앙', withSales: true, pick: null, dm: -0.03, dr: -0.10 },
     });
   }
@@ -99,7 +99,7 @@ function setTop({ title = '', back = null, dark = false, about = true } = {}) {
 function setTabs(id, active) {
   if (!id) { $tabs.hidden = true; $view.classList.add('no-tabs'); return; }
   $tabs.hidden = false; $view.classList.remove('no-tabs');
-  const t = [['', '요약', 'house'], ['/range', '협상 구간', 'scale'], ['/link', '이익연동', 'coins'], ['/risk', '미래 위험', 'cloud-lightning']];
+  const t = [['', '요약', 'house'], ['/range', '협상 구간', 'scale'], ['/link', '기준 환산', 'coins'], ['/risk', '미래 위험', 'cloud-lightning']];
   $tabs.innerHTML = t.map(([p, l, ic]) => `<a class="tab" href="#/f/${id}${p}" ${active === p ? 'aria-current="page"' : ''}>${icon(ic, 22)}<span>${l}</span></a>`).join('');
 }
 
@@ -466,7 +466,7 @@ function viewRange(id) {
       <h2>두 안 비교</h2>
       <div class="panel" id="cmpbox"></div>
       <div class="row" style="margin-top:12px;gap:10px">
-        <a class="btn secondary half" href="#/f/${id}/link">${icon('coins', 18)}이익연동이면</a>
+        <a class="btn secondary half" href="#/f/${id}/link">${icon('coins', 18)}이익 기준 환산</a>
         <a class="btn secondary half" href="#/f/${id}/risk">${icon('cloud-lightning', 18)}불황이 오면</a>
       </div>
     </section>`;
@@ -484,8 +484,8 @@ function viewRange(id) {
     const R = (k) => t.rows[k];
     const state = rng['상한 상태'];
     let interp;
-    if (state === CTX.C.RANGE_HOLD_TEXT) interp = `<div class="callout neutral">${icon('circle-alert', 18)}<span><strong>업계 적자로 인한 상한 산출 보류.</strong> 비교군 대부분이 적자라 "업계만큼의 부담"을 정할 수 없습니다. 하한(업계 인상률)만 참고하고, 고정 인상보다 이익연동 전환을 함께 검토해 보세요.</span></div>`;
-    else if (state === '3년 합산 영업적자') interp = `<div class="callout">${icon('circle-alert', 18)}<span><strong>3년 합산 영업적자라 상한이 0%입니다.</strong> 이익이 없어 우리 회사 부담선을 그릴 수 없습니다. 고정 인상 대신 이익연동 전환을 검토해 보세요.</span></div>`;
+    if (state === CTX.C.RANGE_HOLD_TEXT) interp = `<div class="callout neutral">${icon('circle-alert', 18)}<span><strong>업계 적자로 인한 상한 산출 보류.</strong> 비교군 대부분이 적자라 "업계만큼의 부담"을 정할 수 없습니다. 하한(업계 인상률)만 참고하고, 고정 인상보다 이익 기준 성과급을 함께 검토해 보세요(기준 환산 탭).</span></div>`;
+    else if (state === '3년 합산 영업적자') interp = `<div class="callout">${icon('circle-alert', 18)}<span><strong>3년 합산 영업적자라 상한이 0%입니다.</strong> 이익이 없어 우리 회사 부담선을 그릴 수 없습니다. 고정 인상 대신 이익 기준 성과급을 검토해 보세요(기준 환산 탭).</span></div>`;
     else interp = `<div class="callout">${icon('scale', 18)}<span>${esc(rng['구간 해석'])}${state === '적자 전환 직전에서 제한' ? ' (마지막 해 영업이익을 다 쓰는 선에서 상한을 멈췄습니다)' : ''}${rng['상한'] > CTX.C.RANGE_UPPER_SHOW_MAX ? '. 상한이 10%를 넘어 숫자 대신 "10% 초과"로 표시합니다' : ''}</span></div>`;
     const pos = (k) => `<span class="badge ${posClass(R('구간 위치')[k])}"><span class="dot"></span>${esc(R('구간 위치')[k])}</span>`;
     document.getElementById('chartbox').innerHTML = `${rangeChart(f, rng, { union: S.union.base, company: S.company.base })}
@@ -522,56 +522,136 @@ function sw(key, on, title, desc = '') {
     <label class="switch"><input type="checkbox" data-sw="${key}" ${on ? 'checked' : ''} aria-labelledby="lb-${key}"><span></span></label></div>`;
 }
 
-// ---------------------------------------------------------------- 화면: 이익연동 전환
+// ---------------------------------------------------------------- 화면: 급여 기준 ↔ 이익 기준 환산 (기능 3)
+// 지금 성과급 입력값 → 엔진 인자 (급여 대비 % 또는 올해 총액)
+function linkArgs(S) {
+  return S.link.mode === 'amount' && isNum(S.link.amount) ? { amount: S.link.amount } : { rate: S.link.rate };
+}
+// 기능 4로 넘길 급여 대비 비율 (총액 입력이면 마지막 해 급여총액으로 나눔)
+function linkRate(id) {
+  return E.profitLinkPlan(CTX, id, linkArgs(st(id)))['현재 지급률(급여 대비)'];
+}
+
 function viewLink(id) {
   const f = CTX.firms.get(id);
   const S = st(id);
   setTop({ title: f.name, back: '#/' });
   setTabs(id, '/link');
-  const aStar = f.alpha_star;
-  const a0 = S.link.alpha ?? (isNum(aStar) ? aStar : 0.05);
-  const maxA = Math.max(0.3, isNum(aStar) ? aStar * 2.5 : 0.3);
+  const L = S.link;
+  const eok = isNum(L.amount) ? String(Math.round(L.amount / 1e8)) : (isNum(f.S_T) ? String(Math.round((L.rate * f.S_T) / 1e8)) : '');
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
-      <h2>이익연동 전환</h2>
-      <p class="lead">급여의 5%를 고정으로 주던 성과급을 "영업이익의 몇 %"로 바꾸면 어떻게 되는지 봅니다. 기준은 진단과 같은 3년 연평균입니다.</p>
-      ${isNum(aStar) ? `<div class="callout">${icon('coins', 18)}<span>시작값 <strong>영업이익의 ${pct(aStar)}</strong>를 주면 지금의 고정 지급(급여 5%)과 같은 금액입니다.</span></div>`
-        : `<div class="callout neutral">${icon('circle-alert', 18)}<span>3년 합산 영업적자라 시작값을 계산하지 않습니다. 연동 방식이면 이익이 날 때까지 지급액이 0원입니다.</span></div>`}
+      <h2>급여 기준 ↔ 이익 기준 환산</h2>
+      <p class="lead">지금 급여 대비로 주는 성과급을 같은 금액으로 "영업이익의 몇 %"로 바꾸면 얼마인지, 노조가 요구한 "영업이익의 N%"는 급여로 치면 얼마인지 봅니다.</p>
     </section>
     <section class="section">
       <div class="panel">
-        <div class="row between"><label for="alpha" class="t" style="font-weight:600">영업이익 대비 지급 비율</label><strong class="num" id="alv">${pct(a0)}</strong></div>
-        <input class="slider" id="alpha" type="range" min="0" max="${(maxA * 100).toFixed(1)}" step="0.1" value="${(a0 * 100).toFixed(1)}">
-        ${isNum(aStar) ? `<button class="chip" id="reset" type="button">시작값 ${pct(aStar)}로</button>` : ''}
+        <div class="t" style="font-weight:600;margin-bottom:10px">지금 주는 성과급</div>
+        <div class="seg" role="group" aria-label="입력 방식">
+          <button type="button" data-mode="rate" aria-pressed="${L.mode !== 'amount'}">급여의 %</button>
+          <button type="button" data-mode="amount" aria-pressed="${L.mode === 'amount'}">올해 총액</button>
+        </div>
+        <div style="margin-top:12px">
+          <div id="m-rate" ${L.mode === 'amount' ? 'hidden' : ''}>${stepper('lr', L.rate, { label: '급여 대비 성과급', step: 0.5, max: 200 })}</div>
+          <div id="m-amount" ${L.mode === 'amount' ? '' : 'hidden'}><div class="field"><label for="in-amt">올해 성과급 총액</label>
+            <div class="stepper"><span class="inp" style="grid-column:1 / -1"><input id="in-amt" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${eok}"><span class="unit">억 원</span></span></div></div></div>
+        </div>
+        <p class="note" style="margin-top:8px">회사 공시에는 성과급이 따로 나오지 않아 직접 넣습니다. 기본값은 급여의 5%입니다.</p>
       </div>
     </section>
     <section class="section">
-      <h2>고정 vs 연동</h2>
-      <div class="panel" id="lres"></div>
-      <p class="note" style="margin-top:10px">흑자일 때 연동 방식의 회사 부담 ÷ 영업이익은 비율 × 1.1로 어느 회사나 같습니다. 회사마다 달라지는 것은 직원이 받는 급여 대비 지급률입니다. 성과급이 생산성을 올린다는 근거는 이번 분석에서 찾지 못했습니다(성과급은 성과를 뒤따라 지급됨, WPS 분석).</p>
-      <a class="btn secondary" href="#/f/${id}/risk" style="margin-top:12px">${icon('cloud-lightning', 18)}불황이 오면 연동 지급은?</a>
+      <h2>같은 금액이 되는 영업이익 비율</h2>
+      <div class="panel" id="conv"></div>
+    </section>
+    <section class="section">
+      <h2>노조 요구를 급여로 환산</h2>
+      <div class="panel">
+        ${stepper('dn', L.demand, { label: '노조 요구(영업이익 대비)', step: 1, max: 100 })}
+        <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap">${[0.10, 0.15, 0.30].map((v) => `<button class="chip" type="button" data-dn="${v}">영업이익의 ${pct(v, 0)}</button>`).join('')}</div>
+        <div id="dres" style="margin-top:14px"></div>
+      </div>
+    </section>
+    <section class="section">
+      <h2>이익 기준으로 바꾸면 생기는 변화</h2>
+      <div class="panel" id="lrisk"></div>
+      <a class="btn secondary" href="#/f/${id}/risk" style="margin-top:12px">${icon('cloud-lightning', 18)}불황이 오면 이익 기준 성과급은?</a>
     </section>`;
-  const alpha = () => S.link.alpha ?? (isNum(aStar) ? aStar : 0.05);
+
   const draw = () => {
-    const r = E.profitLinkPlan(CTX, id, { alpha: alpha() });
-    document.getElementById('alv').textContent = pct(alpha());
-    const ratio = r['연동 ÷ 고정'];
-    document.getElementById('lres').innerHTML = `
-      <table class="cmp">
-        <thead><tr><th></th><th>고정 (급여 5%)</th><th>연동</th></tr></thead>
+    const args = linkArgs(S);
+    const r = E.profitLinkPlan(CTX, id, args);
+    const rate = r['현재 지급률(급여 대비)'];
+    const aEq = r['같은 금액 비율(3년 평균 기준)'], aT = r['같은 금액 비율(작년 기준)'];
+    let gap = '';
+    if (isNum(aEq) && isNum(aT) && Math.abs(aT / aEq - 1) >= 0.2) {
+      gap = aT < aEq
+        ? `작년 이익이 3년 평균보다 많아 작년 기준 비율이 더 작습니다. 작년 숫자로 합의하면 이익이 평년 수준으로 돌아올 때 성과급이 지금보다 줄어듭니다.`
+        : `작년 이익이 3년 평균보다 적어 작년 기준 비율이 더 큽니다. 작년 숫자로 합의하면 이익이 회복될 때 성과급이 지금보다 크게 늘어납니다.`;
+    }
+    document.getElementById('conv').innerHTML = isNum(aEq) && f.OP_avg > 0 ? `
+      <div class="t">급여의 ${pct(rate)} (1년 ${won(r['고정 지급(급여 대비 rate)'])}, 1인당 ${man(r['1인당 고정 지급'])})와 같은 금액</div>
+      <div class="num" style="font-size:34px;font-weight:700;letter-spacing:-0.03em;margin-top:4px">영업이익의 ${pct(aEq)}</div>
+      <div class="note">3년 연평균 기준 · 영업이익 ${won(f.OP_avg)} 기준</div>
+      <table class="cmp" style="margin-top:14px">
         <tbody>
-          <tr><th scope="row">1년 지급 총액</th><td>${won(r['고정 지급(급여 대비 rate)'])}</td><td>${won(r['연동 지급'])}</td></tr>
-          <tr><th scope="row">1인당</th><td>${man(r['1인당 고정 지급'])}</td><td>${man(r['1인당 연동 지급'])}</td></tr>
-          <tr><th scope="row">회사 부담 ÷ 영업이익</th><td>${pctRaw(r['고정 부담 ÷ 영업이익(%)'])}</td><td>${pctRaw(r['연동 부담 ÷ 영업이익(%)'])}</td></tr>
-          <tr><th scope="row">급여 대비 지급률</th><td>5.0%</td><td>${pctRaw(r['급여 대비 지급률(%)'])}</td></tr>
+          <tr><th scope="row">3년 평균 기준 (권장)</th><td><strong>${pct(aEq)}</strong></td></tr>
+          <tr><th scope="row">작년 한 해 기준</th><td>${isNum(aT) ? pct(aT) : '작년 적자라 계산 안 함'}</td></tr>
         </tbody>
       </table>
-      <p class="note" style="margin-top:10px">${r['0원 지급'] ? '<strong>영업이익이 0 이하라 연동 지급은 0원입니다.</strong> ' : ''}연동 ÷ 고정 = <strong>${isNum(ratio) ? `${ratio.toFixed(2)}배` : '—'}</strong> · 영업이익(3년 연평균) ${won(r['영업이익(3년 연평균)'])}</p>`;
+      ${gap ? `<div class="callout neutral" style="margin-top:12px">${icon('circle-alert', 18)}<span>${gap}</span></div>` : ''}`
+      : `<div class="callout neutral">${icon('circle-alert', 18)}<span>3년 합산 영업적자라 같은 금액이 되는 비율을 계산할 수 없습니다. 이익 기준으로 바꾸면 이익이 날 때까지 성과급이 0원입니다.</span></div>`;
+
+    const d = E.demandToSalary(CTX, id, { n: L.demand, ...args });
+    const k = d['요구 ÷ 현재'];
+    document.getElementById('dres').innerHTML = f.OP_avg > 0 ? `
+      <div class="t">영업이익의 ${pct(L.demand, 0)}는</div>
+      <div class="num" style="font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-top:2px">급여의 ${pctRaw(d['요구 급여 대비 지급률(%)'])}</div>
+      <div class="note">1년 ${won(d['요구 지급'])} · 1인당 ${man(d['1인당 요구 지급'])} · 지금 성과급의 <strong>${isNum(k) ? `${k.toFixed(1)}배` : '—'}</strong></div>`
+      : `<div class="note">3년 합산 영업적자라 요구액은 0원입니다.</div>`;
+
+    // 3년 모델 예측: 0원인 해·흔들림은 비율과 무관, 비용은 지급률에 비례
+    const fr = CTX.fc.get(id);
+    const K = '3년·같은 예산 이익연동(α)_', X = '3년·급여총액 5%_';
+    const sc = rate / CTX.C.PAY_RATE;
+    const box = document.getElementById('lrisk');
+    if (!fr || !isNum(fr[`${K}0원인 해 생김`])) {
+      box.innerHTML = `<p class="note">이 회사는 3년 모델 예측 대상이 아닙니다 (마지막 해 매출이 없거나 자료 부족). 아래 불황 점검으로 확인해 보세요.</p>`;
+      return;
+    }
+    const eokTxt = (v) => (isNum(v) ? won(v * 1e8 * sc) : '—');
+    box.innerHTML = `
+      <table class="cmp">
+        <thead><tr><th></th><th>지금 (급여 기준)</th><th>이익 기준</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">3년 안에 성과급 0원인 해가 생길 확률</th><td>${pct(fr[`${X}0원인 해 생김`], 0)}</td><td><strong>${pct(fr[`${K}0원인 해 생김`], 0)}</strong></td></tr>
+          <tr><th scope="row">1인당 수령액이 해마다 흔들리는 정도</th><td>${pct(fr[`${X}1인당 수령 변동계수`], 0)}</td><td><strong>${pct(fr[`${K}1인당 수령 변동계수`], 0)}</strong></td></tr>
+          <tr><th scope="row">3년 비용 (보통)</th><td>${eokTxt(fr[`${X}3년 비용 P50(억)`])}</td><td>${eokTxt(fr[`${K}3년 비용 P50(억)`])}</td></tr>
+          <tr><th scope="row">3년 비용 (많을 때)</th><td>${eokTxt(fr[`${X}3년 비용 P90(억)`])}</td><td>${eokTxt(fr[`${K}3년 비용 P90(억)`])}</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin-top:10px">노트북 6장 모델로 앞으로 3년을 여러 번 그려 본 결과입니다. 흔들리는 정도는 1인당 수령액이 평균에서 벗어나는 비율(변동계수)입니다. 0원인 해와 흔들리는 정도는 성과급 크기와 관계없고, 비용은 지금 성과급 크기에 비례해 바꿔 보여 줍니다. 회사는 이익이 줄 때 부담이 같이 줄고, 직원은 받는 돈이 불안정해집니다. 성과급이 생산성을 올린다는 근거는 이번 분석에서 찾지 못했습니다(WPS).</p>`;
   };
-  const $a = document.getElementById('alpha');
-  $a.addEventListener('input', () => { S.link.alpha = Number($a.value) / 100; draw(); });
-  const $r = document.getElementById('reset');
-  if ($r) $r.addEventListener('click', () => { S.link.alpha = null; $a.value = (aStar * 100).toFixed(1); draw(); });
+
+  const get = (k) => (k === 'lr' ? L.rate : L.demand);
+  const set = (k, v) => { if (k === 'lr') L.rate = v; else L.demand = v; };
+  bindSteppers($view, get, set, draw);
+  $view.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    L.mode = b.dataset.mode;
+    $view.querySelectorAll('[data-mode]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.getElementById('m-rate').hidden = L.mode === 'amount';
+    document.getElementById('m-amount').hidden = L.mode !== 'amount';
+    if (L.mode === 'amount' && !isNum(L.amount)) { const n = parseNum(document.getElementById('in-amt').value); if (Number.isFinite(n) && n > 0) L.amount = n * 1e8; }
+    draw();
+  }));
+  document.getElementById('in-amt').addEventListener('input', (e) => {
+    const n = parseNum(e.target.value);
+    if (Number.isFinite(n) && n > 0) { L.amount = n * 1e8; draw(); }
+  });
+  $view.querySelectorAll('[data-dn]').forEach((b) => b.addEventListener('click', () => {
+    L.demand = Number(b.dataset.dn);
+    document.getElementById('in-dn').value = (L.demand * 100).toFixed(1);
+    draw();
+  }));
   draw();
 }
 
@@ -611,7 +691,7 @@ function viewRisk(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       <h2>미래 위험</h2>
-      <p class="lead">회사안(기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)})과 이익연동 비율을 그대로 받아 봅니다. <a href="#/f/${id}/range">안 바꾸기</a></p>
+      <p class="lead">회사안(기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)})과, 지금 성과급(급여의 ${pct(linkRate(id))})을 같은 금액의 이익 기준으로 바꾼 경우를 그대로 받아 봅니다. <a href="#/f/${id}/range">안 바꾸기</a></p>
       <div class="panel" id="fcbox"></div>
     </section>
     <section class="section">
@@ -651,7 +731,7 @@ function viewRisk(id) {
   };
   const draw = () => {
     const custom = S.risk.pick === '직접 입력' ? { 이익률: S.risk.dm, 매출: S.risk.dr } : null;
-    const t = E.stressTest(CTX, id, { ...plan, severity: S.risk.severity, with_sales: S.risk.withSales, alpha: S.link.alpha ?? null, custom, useForecast: false });
+    const t = E.stressTest(CTX, id, { ...plan, severity: S.risk.severity, with_sales: S.risk.withSales, rate: linkRate(id), custom, useForecast: false });
     document.getElementById('warn').innerHTML = t.attrs['기준 연도 경고'] ? `<div class="callout neutral" style="margin-top:12px">${icon('circle-alert', 18)}<span>${esc(t.attrs['기준 연도 경고'])}</span></div>` : '';
     const base = t.rows['평상시'];
     const r = t.rows[S.risk.pick];
@@ -679,7 +759,7 @@ function viewRisk(id) {
         <tbody>
           <tr><th scope="row">지급 후 영업이익</th><td>${won(base['지급 후 영업이익'])}</td><td class="${r['지급 후 영업이익'] < 0 ? 'neg' : ''}">${won(r['지급 후 영업이익'])}</td></tr>
           <tr><th scope="row">내년 매출</th><td>${won(base['내년 매출'])}</td><td>${won(r['내년 매출'])}</td></tr>
-          <tr><th scope="row">이익연동 지급 (고정 대비)</th><td>${ratio(base['이익연동 ÷ 고정'])}</td><td>${ratio(r['이익연동 ÷ 고정'])}</td></tr>
+          <tr><th scope="row">이익 기준 성과급 (지금 대비)</th><td>${ratio(base['이익연동 ÷ 고정'])}</td><td>${ratio(r['이익연동 ÷ 고정'])}</td></tr>
         </tbody>
       </table>`;
   };
