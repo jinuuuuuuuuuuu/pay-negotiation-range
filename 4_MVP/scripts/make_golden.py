@@ -103,9 +103,11 @@ def ser(v):
 PAY = [dict(base_raise=0.03), dict(base_raise=0.05, bonus=0.01, headcount=0.05, sales_growth=0.04),
        dict(bonus=0.02), dict(base_raise=0.04, peer_raise=0.0)]
 RATES = [0.0, 0.02, 0.035, 0.05, 0.08, 0.15]
-LINK = [dict(), dict(alpha=0.10), dict(alpha=0.10, cap=0.10, floor=0.01)]
+LINK = [dict(), dict(alpha=0.10), dict(alpha=0.10, cap=0.10, floor=0.01), dict(rate=0.08), dict(amount=1e10)]
+DEMAND = [dict(n=0.10), dict(n=0.30, rate=0.08), dict(n=0.15, amount=1e10)]
 STRESS = [dict(), dict(base_raise=0.05, alpha=0.10, cap=0.10), dict(base_raise=0.03, severity='하위25'),
-          dict(base_raise=0.03, with_sales=False), dict(base_raise=0.03, custom={'이익률': -0.03, '매출': -0.10})]
+          dict(base_raise=0.03, with_sales=False), dict(base_raise=0.03, custom={'이익률': -0.03, '매출': -0.10}),
+          dict(base_raise=0.03, rate=0.08)]
 
 
 def cases(ctx, fc, ids):
@@ -123,6 +125,7 @@ def cases(ctx, fc, ids):
                                  'out': ser(F.compare_offers(ctx, fid, union={'base_raise': 0.07},
                                                              company={'base_raise': 0.04, 'bonus': 0.01}))}
         rec['profit_link_plan'] = [{'args': a, 'out': ser(F.profit_link_plan(ctx, fid, **a))} for a in LINK]
+        rec['demand_to_salary'] = [{'args': a, 'out': ser(F.demand_to_salary(ctx, fid, **a))} for a in DEMAND]
         rec['pay_plan_forecast'] = {'args': {'base_raise': 0.03}, 'out': ser(F.pay_plan_forecast(ctx, fid, fc, base_raise=0.03))}
         rec['scenarios'] = ser(F.scenarios(ctx, fid))
         rec['stress_test'] = [{'args': a, 'out': ser(F.stress_test(ctx, fid, fc=fc, **a))} for a in STRESS]
@@ -154,7 +157,7 @@ if __name__ == '__main__':
     gold = cases(ctx, fc, ids)
     os.makedirs(os.path.dirname(OUTP), exist_ok=True)
     meta = {'note': 'formula.py 함수를 앱과 같은 data/*.json 입력으로 실행한 정답. JS 엔진은 이 값과 상대오차 1e-9 이내로 같아야 함',
-            'firms': len(ids), 'pay_args': PAY, 'rates': RATES, 'link_args': LINK, 'stress_args': STRESS}
+            'firms': len(ids), 'pay_args': PAY, 'rates': RATES, 'link_args': LINK, 'demand_args': DEMAND, 'stress_args': STRESS}
     with open(OUTP, 'w', encoding='utf-8') as f:
         json.dump({'meta': meta, 'cases': gold}, f, ensure_ascii=False, allow_nan=False)
     print(f'정답 세트: {len(ids)}곳 → tests/golden.json ({os.path.getsize(OUTP) / 1024:,.0f} KB)')

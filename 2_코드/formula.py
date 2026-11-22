@@ -659,15 +659,21 @@ def pay_plan_forecast(ctx, firm, fc, base_raise=0.0, bonus=0.0, headcount=0.0, s
     return out
 
 
-def profit_link_plan(ctx, firm, alpha=None, cap=None, floor=None, rate=PAY_RATE, c=OVERHEAD_C):
-    """이익연동 전환 (기능 3): 급여의 rate를 고정으로 주던 성과급을 '영업이익의 α'로 바꾸면 어떻게 되나.
-    - 기준은 진단과 같은 3년 연평균(급여·영업이익·매출·직원수 ÷ 3). 그래서 시작값 α*를 넣으면 연동 지급 = 고정 지급
-    - alpha=None이면 시작값 α* / cap·floor: 급여 대비 상한·하한 (예: 0.10 = 급여의 10%)
+def profit_link_plan(ctx, firm, alpha=None, cap=None, floor=None, rate=PAY_RATE, c=OVERHEAD_C, amount=None):
+    """급여 기준 ↔ 이익 기준 환산 (기능 3): 지금 '급여의 rate'로 주는 성과급을 '영업이익의 α'로 바꾸면 몇 %여야 같은 금액인가.
+    - 입력은 지금의 성과급: rate(급여 대비, 예 0.05) 또는 amount(올해 총액, 원). amount를 주면 rate = amount ÷ 마지막 해 급여총액
+    - 같은 금액 비율(3년 평균 기준) = rate × 급여(3년 연평균) ÷ 영업이익(3년 연평균) = α* × rate ÷ PAY_RATE  ← 권장
+      같은 금액 비율(작년 기준)     = rate × 마지막 해 급여 ÷ 마지막 해 영업이익  ← 한 해만 보면 호황·불황에 따라 크게 달라짐
+    - alpha=None이면 같은 금액 비율(3년 평균 기준)을 적용. cap·floor: 급여 대비 상한·하한 (앱에서는 쓰지 않음)
     - 평상시 기준. 불황이 오면 지급액이 얼마로 바뀌는지는 기능 4 업계 불황 대비 점검(stress_test)에서만 본다 (11-21 결정)
     - 흑자일 때 회사 부담 ÷ 영업이익 = α × (1 + c)로 어느 회사나 같고, 회사마다 다른 것은 '급여 대비 지급률'(직원 몫)
     - 과거 연도에 적용해 보는 계산은 하지 않음 (11-21 결정)"""
     f = ctx.firms.loc[firm]
-    a = f['α*'] if alpha is None else alpha
+    if amount is not None:
+        rate = amount / f.S_T if f.S_T > 0 else np.nan
+    a_eq = f['α*'] * rate / PAY_RATE if pd.notna(f['α*']) else np.nan
+    a_eq_T = rate * f.S_T / f.OP_T if f.OP_T > 0 else np.nan
+    a = a_eq if alpha is None else alpha
     S, N, REV = f.S_avg, f.N_avg, f.REV_avg
     OP = f.OP_avg
     fixed = rate * S
@@ -677,6 +683,7 @@ def profit_link_plan(ctx, firm, alpha=None, cap=None, floor=None, rate=PAY_RATE,
     if pd.notna(pay) and cap is not None:
         pay = min(pay, cap * S)
     return pd.Series({
+        '현재 지급률(급여 대비)': rate, '같은 금액 비율(3년 평균 기준)': a_eq, '같은 금액 비율(작년 기준)': a_eq_T,
         '적용 비율(영업이익 대비)': a, '상한(급여 대비)': cap, '하한(급여 대비)': floor,
         '영업이익(3년 연평균)': OP,
         '고정 지급(급여 대비 rate)': fixed, '연동 지급': pay, '연동 ÷ 고정': pay / fixed if fixed > 0 else np.nan,
@@ -686,6 +693,24 @@ def profit_link_plan(ctx, firm, alpha=None, cap=None, floor=None, rate=PAY_RATE,
         '연동 부담 ÷ 영업이익(%)': pay * (1 + c) / OP * 100 if pd.notna(pay) and OP > 0 else np.nan,
         '고정 부담 ÷ 영업이익(%)': fixed * (1 + c) / OP * 100 if OP > 0 else np.nan,
         '0원 지급': bool(pd.notna(OP) and OP <= 0 and floor is None),
+    })
+
+
+def demand_to_salary(ctx, firm, n, rate=PAY_RATE, c=OVERHEAD_C, amount=None):
+    """거꾸로 환산 (기능 3): 노조가 요구한 '영업이익의 n'을 급여 대비 %로 바꾸면 얼마인가 (3년 연평균 기준).
+    같은 n%라도 이익÷급여가 큰 회사는 급여 대비로 훨씬 크다. 지금 성과급(rate 또는 amount)과 몇 배인지도 함께."""
+    f = ctx.firms.loc[firm]
+    if amount is not None:
+        rate = amount / f.S_T if f.S_T > 0 else np.nan
+    S, N, OP = f.S_avg, f.N_avg, f.OP_avg
+    pay = n * max(OP, 0) if pd.notna(OP) else np.nan
+    now = rate * S
+    return pd.Series({
+        '요구 비율(영업이익 대비)': n, '요구 지급': pay,
+        '요구 급여 대비 지급률(%)': pay / S * 100 if S > 0 else np.nan,
+        '현재 지급': now, '요구 ÷ 현재': pay / now if now > 0 else np.nan,
+        '1인당 요구 지급': pay / N if N > 0 else np.nan,
+        '요구 부담 ÷ 영업이익(%)': n * (1 + c) * 100 if pd.notna(OP) and OP > 0 else np.nan,
     })
 
 
