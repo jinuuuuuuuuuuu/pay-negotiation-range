@@ -824,7 +824,7 @@ details.more.inline > summary { font-size: 15px; font-weight: 650; padding: 4px 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
-  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --spring: cubic-bezier(0.34, 1.2, 0.64, 1);
   --dur-s: 200ms; --dur-m: 300ms; --dur-l: 400ms;
 }
 @keyframes m-fade-in { from { opacity: 0; } }
@@ -833,7 +833,7 @@ details.more.inline > summary { font-size: 15px; font-weight: 650; padding: 4px 
 @keyframes m-scale-in { from { opacity: 0; transform: scale(0.9); } }
 @keyframes m-scale-out { to { opacity: 0; transform: scale(0.96); } }
 @keyframes m-rise { from { opacity: 0; transform: translateY(10px); } }
-@keyframes m-spring { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes m-spring { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
 @keyframes m-spin { to { transform: rotate(360deg); } }
 
 /* 토스트 → 막대 툴팁: 제자리 페이드 인/아웃 */
@@ -911,3 +911,27 @@ details.more > summary .ic { transition: transform var(--dur-s) var(--ease-io); 
   .spinner { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
   .chart-tip.is-out, .wage-warn.is-out { animation: none !important; }
 }
+
+/* ================================================================ 최종 점검 반영 (11-23)
+   태그 알약 → 회색 설명 한 줄 · 소제목 아이콘 칩 없음 · 줄바꿈 깨짐 방지 · 두 안 비교 접기 */
+p.keys { display: block; margin: 0 0 12px; font-size: 13px; font-weight: 500; line-height: 1.55; color: var(--ink-3); word-break: keep-all; }
+p.keys .sep { color: var(--line-strong, #C9C9C5); }
+p.keys a { color: var(--ink); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.callout p.keys, .scn-head p.keys, .turnover p.keys, .empty p.keys, .find-head p.keys, details.more p.keys { margin: 4px 0 0; }
+.callout p.keys { color: var(--ink-2); }
+.find-head p.keys { font-size: 14px; }
+.about > p.keys { margin-top: 24px; }
+h2.hd { gap: 0; }
+
+/* 줄바꿈: 낱말 단위로만 끊고, 숫자+단위는 한 덩어리 */
+.callout strong, .bf .bl, .bf .bsub, .tile .v, .tile .s, .drows .dk, .rl-why, .axis .s { word-break: keep-all; }
+.tiles .tile .v { white-space: nowrap; font-size: clamp(15px, 4.4vw, 18px); }
+.tiles .tile .s { word-break: keep-all; }
+
+/* 두 안 비교: 핵심 3줄 뒤 나머지는 접기 */
+.bf-more > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 12px 0 2px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.bf-more > summary::-webkit-details-marker { display: none; }
+.bf-more > summary .ic { transition: transform var(--dur-s) var(--ease-io); }
+.bf-more[open] > summary { order: 2; }
+.bf-more[open] > summary .ic { transform: rotate(90deg); }
+.bf-more[open] > .bf-row { animation: m-slide-up var(--dur-m) var(--ease-out) both; }
