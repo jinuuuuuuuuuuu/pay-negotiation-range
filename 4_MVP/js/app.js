@@ -562,7 +562,7 @@ function heroCard(f, rng, wc) {
   }
   return `<section class="hero" id="hero">
     <h2 class="co">${esc(f.name)}</h2>
-    <p class="ind">${esc(f.ind2_name || '')}${f.stock_code ? ` · ${f.stock_code}` : ''}${f.market ? ` · ${esc(f.market)}` : ''}</p>
+    ${f.ind2_name ? `<p class="ind">${esc(String(f.ind2_name).replace(/^\d+\s*/, ''))} 업계</p>` : ''}
     ${ax.length ? `<div class="axes${ax.length === 1 ? ' one' : ''}">${ax.join('')}</div>` : ''}
   </section>
   <div class="sheet-lip">
@@ -844,7 +844,13 @@ function viewLink(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       ${h2('급여 기준 ↔ 이익 기준 환산', 'coins', 'butter')}
-      ${keys(['현재 성과급은 영업이익 비율로, 노조 요구는 급여 비율로 바꿔 봅니다', '3년 연평균 기준'])}
+      <div class="cond">
+        <dl class="cond-grid">
+          <div><dt>현재 성과급</dt><dd><span>영업이익의 몇 %인지</span></dd></div>
+          <div><dt>노조 요구</dt><dd><span>급여의 몇 %인지</span></dd></div>
+        </dl>
+        <p class="cond-note">두 방향으로 바꿔 봅니다 · 3년 연평균 기준</p>
+      </div>
     </section>
     <section class="section">
       <div class="panel link-in">
@@ -1011,7 +1017,13 @@ function viewRisk(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       ${h2('미래 위험', 'cloud-lightning', 'amber')}
-      ${keys([`회사안 기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)} 기준`, `지금 성과급(급여의 ${pct(linkRate(id))})은 이익 기준으로 환산`, `<a href="#/f/${id}/range">급여 기준 그대로 보기</a>`])}
+      <div class="cond">
+        <dl class="cond-grid">
+          <div><dt>계산한 회사안</dt><dd class="num"><span>기본급 ${pct(S.company.base)}</span><span>성과급 ${pct(S.company.bonus)}</span></dd></div>
+          <div><dt>현재 성과급 · 이익 기준 환산</dt><dd class="num"><span>급여의 ${pct(linkRate(id))}</span></dd></div>
+        </dl>
+        <a class="cond-link" href="#/f/${id}/range">급여 기준 그대로 보기 ${icon('chevron-right', 16)}</a>
+      </div>
       <div class="panel" id="fcbox"></div>
     </section>
     <section class="section" id="stress">
