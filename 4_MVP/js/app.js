@@ -46,7 +46,7 @@ function posClass(p) {
   return 'hold';
 }
 // 업계 불황 대비 점검의 행 이름·종류를 쉬운 말로
-const SCN_NAME = { 평상시: '기준 시나리오', '모델 중앙(P50)': '모델 예측: 보통 시나리오', '모델 나쁜 쪽(P10)': '모델 예측: 최악의 시나리오' };
+const SCN_NAME = { 평상시: '불황 미발생', '모델 중앙(P50)': '모델 예측: 보통 시나리오', '모델 나쁜 쪽(P10)': '모델 예측: 최악의 시나리오' };
 const scnName = (n) => u(SCN_NAME[n] || n);
 const SCN_KIND = { 평상시: '기본', '공통 사건': '모든 업계 공통', '우리 업종 사건': '우리 업계 사건', '최악의 해': '우리 업계 최악의 해', '직접 입력': '직접 입력' };
 
@@ -975,7 +975,7 @@ function scnInfo(name, kind) {
   const src = String(row['출처'] || '').split(' | ').filter((x) => /^https?:\/\//.test(x)).slice(0, 2);
   // 설명 중 근거의 한계를 말하는 문장(분리 근거 없음·다른 요인과 섞임 등)은 화면에서 뺀다
   const desc = u(row['원인근거'] || '').split(/(?<=[.。])\s+/)
-    .filter((s) => !/근거(는|가)?\s*없|분리|섞여|미확인|불확실|아닐 수|확인되지/.test(s)).join(' ').trim();
+    .filter((s) => !/근거(는|가)?\s*없|분리|섞여|미확인|불확실|아닐 수|확인되지|찾지 못/.test(s)).join(' ').trim();
   return { desc, src, level: row['확인수준'] };
 }
 
@@ -1070,9 +1070,9 @@ function viewRisk(id) {
       <p class="facts-h">회사안 지급 후 내년 영업이익률</p>
       <ul class="sbars">
         <li><span class="lab">${scnName('평상시')}</span>${dbar(v0, lo, hi)}<span class="val num${v0 < 0 ? ' neg' : ''}">${pctRaw(v0)}</span></li>
-        <li><span class="lab">불황 시나리오</span>${dbar(v1, lo, hi)}<span class="val num${v1 < 0 ? ' neg' : ''}">${pctRaw(v1)}</span></li>
+        <li><span class="lab">불황 발생</span>${dbar(v1, lo, hi)}<span class="val num${v1 < 0 ? ' neg' : ''}">${pctRaw(v1)}</span></li>
       </ul>
-      <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '불황 시나리오'], tones: ['stone', 'peach'], rows: [
+      <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '불황 발생'], tones: ['stone', 'peach'], rows: [
         { lab: '지급 후 영업이익', a: won(base['지급 후 영업이익']), b: won(r['지급 후 영업이익']), an: base['지급 후 영업이익'], bn: r['지급 후 영업이익'], aneg: base['지급 후 영업이익'] < 0, bneg: r['지급 후 영업이익'] < 0, diff: dWon },
         { lab: '내년 매출', a: won(base['내년 매출']), b: won(r['내년 매출']), an: base['내년 매출'], bn: r['내년 매출'], diff: dWon },
         { lab: '이익 기준 성과급', sub: '지금 대비', a: ratio(base['이익연동 ÷ 고정']), b: ratio(r['이익연동 ÷ 고정']), an: base['이익연동 ÷ 고정'], bn: r['이익연동 ÷ 고정'], diff: (v) => `${v.toFixed(2)}배` },
