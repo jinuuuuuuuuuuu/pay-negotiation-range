@@ -935,3 +935,28 @@ h2.hd { gap: 0; }
 .bf-more[open] > summary { order: 2; }
 .bf-more[open] > summary .ic { transform: rotate(90deg); }
 .bf-more[open] > .bf-row { animation: m-slide-up var(--dur-m) var(--ease-out) both; }
+
+/* 협상 구간 결론: 노란 칸 가운데 정렬 */
+.callout.center { align-items: center; justify-content: center; text-align: center; }
+.callout.center > div { flex: 0 1 auto; }
+
+/* 눈금자 노조안·회사안 점: 작게 */
+.chart.rz .pt-un { stroke-width: 1.5; }
+.chart.rz .pt-co { stroke-width: 2; }
+
+/* 한 줄 전체를 쓰던 입력칸(두 칸 나란히가 아닌 것): 글자 크기에 맞게 줄임 */
+:not(.fields) > .field > .stepper { max-width: 220px; height: 44px; grid-template-columns: 36px 1fr 36px; }
+:not(.fields) > .field > .stepper .inp { justify-content: center; }
+:not(.fields) > .field > .stepper input { text-align: right; width: 4.6ch; flex: none; }
+#m-amount .stepper input { width: 7ch; }
+
+/* 대결형 비교 머리말: 양쪽 모두 가운데 정렬 */
+.bh.a, .bh.b { align-items: center; justify-content: center; text-align: center; }
+
+/* 미래 위험 예측 카드: 최악일 때 타일과 아래 설명을 가운데로 */
+#fcbox .tile { align-items: center; text-align: center; }
+#fcbox p.keys { text-align: center; }
+
+/* 사건 카드: 개요 글씨를 줄이고 항목 이름 칸을 좁혀 한 줄에 더 들어가게 */
+.scn-head + .facts { grid-template-columns: 56px 1fr; column-gap: 8px; }
+.scn-desc li { font-size: 12px; line-height: 1.5; letter-spacing: -0.03em; padding-left: 10px; }

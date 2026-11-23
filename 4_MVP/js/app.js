@@ -411,7 +411,7 @@ function rangeChart(f, rng, offers = null, compact = false) {
     const pin = (x, who, v, row, cls) => {
       const lab = `${who} ${pct(v)}`, w = tw1(lab), y = top + bh + 30 + row * 30, l = clamp(x - w / 2, 2, W - 2 - w);
       return `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${top + bh}" y2="${y}" class="rz-pin ${cls}"/>`
-        + `<circle cx="${x.toFixed(1)}" cy="${top + bh}" r="7" class="${cls === 'un' ? 'pt-un' : 'pt-co'}"/>`
+        + `<circle cx="${x.toFixed(1)}" cy="${top + bh}" r="3.5" class="${cls === 'un' ? 'pt-un' : 'pt-co'}"/>`
         + `<g class="rz-chip ${cls}"><rect x="${l.toFixed(1)}" y="${y}" width="${w.toFixed(1)}" height="24" rx="12"/><text x="${(l + w / 2).toFixed(1)}" y="${y + 16.5}" text-anchor="middle">${esc(lab)}</text></g>`;
     };
     const unLow = close && xU < xC;   // 가까우면 왼쪽 핀을 아래 줄로
@@ -769,7 +769,7 @@ function viewRange(id) {
     const R = (k) => t.rows[k];
     const state = rng['상한 상태'];
     let interp;
-    const callout = (ic, title, tags, tone = '') => `<div class="callout${tone}">${icon(ic, 18)}<div><strong>${title}</strong>${keys(tags)}</div></div>`;
+    const callout = (ic, title, tags, tone = '') => `<div class="callout center${tone}">${icon(ic, 18)}<div><strong>${title}</strong>${keys(tags)}</div></div>`;
     if (state === CTX.C.RANGE_HOLD_TEXT) interp = callout('circle-alert', '업계가 적자라 상한은 계산하지 않았습니다', ['하한만 참고하고, 기준 환산 탭에서 이익 기준 성과급을 검토해 보세요'], ' neutral');
     else if (state === '3년 합산 영업적자') interp = callout('circle-alert', '3년 합산 영업적자라 상한은 0%입니다', ['기준 환산 탭에서 이익 기준 성과급을 검토해 보세요']);
     else interp = callout('scale', esc(RANGE_MSG[rng['구간 해석']] || rng['구간 해석']), [
@@ -844,11 +844,11 @@ function viewLink(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       ${h2('급여 기준 ↔ 이익 기준 환산', 'coins', 'butter')}
-      ${keys(['지금 성과급은 영업이익 비율로, 노조 요구는 급여 비율로 바꿔 봅니다', '3년 연평균 기준'])}
+      ${keys(['현재 성과급은 영업이익 비율로, 노조 요구는 급여 비율로 바꿔 봅니다', '3년 연평균 기준'])}
     </section>
     <section class="section">
-      <div class="panel">
-        <p class="facts-h" style="margin:0 0 10px">지금 주는 성과급</p>
+      <div class="panel link-in">
+        <p class="facts-h" style="margin:0 0 10px">현재 주는 성과급</p>
         <div class="seg" role="group" aria-label="입력 방식">
           <button type="button" data-mode="rate" aria-pressed="${L.mode !== 'amount'}">급여의 %</button>
           <button type="button" data-mode="amount" aria-pressed="${L.mode === 'amount'}">올해 총액</button>
@@ -910,7 +910,7 @@ function viewLink(id) {
       ${tiles([
         { k: '1년 총액', v: won(d['요구 지급']), tone: 'peach' },
         { k: '1인당', v: man(d['1인당 요구 지급']), tone: 'stone' },
-        isNum(k) ? { k: '지금 성과급의', v: `${k.toFixed(1)}배`, tone: 'butter' } : null,
+        isNum(k) ? { k: '현재 성과급의', v: `${k.toFixed(1)}배`, tone: 'butter' } : null,
       ])}`
       : facts([['3년 합산 영업적자', '요구액 0원']]));
 
@@ -925,7 +925,7 @@ function viewLink(id) {
     const pp = (v) => `${(v * 100).toFixed(0)}%p`;
     const row = (lab, sub, key) => ({ lab, sub, a: pct(fr[X + key], 0), b: pct(fr[K + key], 0), an: fr[X + key], bn: fr[K + key], diff: pp });
     const rowC = (lab, sub, key) => { const a = cost(fr[X + key]), b = cost(fr[K + key]); return { lab, sub, a: won(a), b: won(b), an: a, bn: b, diff: dWon }; };
-    morph(document.getElementById('lrisk'), duel({ heads: ['지금 · 급여 기준', '이익 기준'], tones: ['stone', 'butter'], rows: [
+    morph(document.getElementById('lrisk'), duel({ heads: ['현재 · 급여 기준', '이익 기준'], tones: ['stone', 'butter'], rows: [
       row('성과급 0원인 해', '3년 안에 생길 확률', '0원인 해 생김'),
       { ...row('1인당 수령액 흔들림', '해마다 평균에서 벗어나는 폭', '1인당 수령 변동계수'), a: `±${pct(fr[X + '1인당 수령 변동계수'], 0)}`, b: `±${pct(fr[K + '1인당 수령 변동계수'], 0)}` },
       rowC('3년 비용', '보통', '3년 비용 P50(억)'),
