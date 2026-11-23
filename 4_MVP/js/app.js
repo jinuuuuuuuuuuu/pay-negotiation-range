@@ -481,10 +481,10 @@ function viewFind() {
   setTop({ title: '' });
   setTabs(null);
   $view.innerHTML = `
+    <div class="home-hero" id="hero">
     <div class="brand">
-      <img class="brand-logo" src="assets/logo.png" alt="" width="112" height="112">
-      <h1 class="brand-name">노사랑</h1>
-      <svg class="brand-swoosh" viewBox="0 0 120 12" aria-hidden="true"><path d="M4 9 Q60 -1 116 5" /></svg>
+      <img class="brand-logo" src="assets/logo.png?v=4" alt="" width="112" height="112">
+      <h1 class="sr-only">노사랑</h1>
       <p class="brand-tag">노사가 만날 임금 인상 구간,<br>공시 데이터로 찾아 드립니다</p>
     </div>
     <div class="search">
@@ -494,13 +494,16 @@ function viewFind() {
     <div class="examples"><span class="label">예시</span>
       ${EXAMPLES.filter((n) => CTX.list.some((f) => f.name === n)).map((n) => `<button class="chip" data-ex="${esc(n)}">${esc(n)}</button>`).join('')}
     </div>
+    </div>
     <ul class="results" id="res" aria-live="polite"></ul>
 `;
   const $q = document.getElementById('q');
   const $res = document.getElementById('res');
+  const $hero = document.getElementById('hero');
   const run = () => {
     const raw = $q.value.trim();
     const q = raw.replace(/\s+/g, '').toLowerCase();
+    $hero.classList.toggle('searching', !!q);
     if (!q) { $res.innerHTML = ''; return; }
     const hit = CTX.list.filter((f) => f.key.includes(q) || (f.code && f.code.startsWith(q)));
     hit.sort((a, b) => (b.key.startsWith(q) - a.key.startsWith(q)) || (b.size - a.size));
