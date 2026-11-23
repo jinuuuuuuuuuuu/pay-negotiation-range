@@ -1011,13 +1011,13 @@ function viewRisk(id) {
   $view.innerHTML = `
     <section class="section" style="margin-top:12px">
       ${h2('미래 위험', 'cloud-lightning', 'amber')}
-      ${keys([`회사안 기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)} 기준`, `지금 성과급(급여의 ${pct(linkRate(id))})은 이익 기준으로 환산`, `<a href="#/f/${id}/range">회사안 바꾸기</a>`])}
+      ${keys([`회사안 기본급 ${pct(S.company.base)}, 성과급 ${pct(S.company.bonus)} 기준`, `지금 성과급(급여의 ${pct(linkRate(id))})은 이익 기준으로 환산`, `<a href="#/f/${id}/range">급여 기준 그대로 보기</a>`])}
       <div class="panel" id="fcbox"></div>
     </section>
     <section class="section" id="stress">
       ${h2('업계 불황 대비 점검', 'circle-alert', 'peach')}
       ${keys(['우리 업계가 실제로 겪은 불황을 내년에 다시 적용합니다'])}
-      <div class="panel t-peach">
+      <div class="panel">
         <label class="pick-label" for="pick">어떤 불황을 볼까요</label>
         <div class="pick">${icon('cloud-lightning', 18)}<select id="pick">${opts}</select>${icon('chevron-right', 18, 'pick-chev')}</div>
         <div id="cuf" ${S.risk.pick === '직접 입력' ? '' : 'hidden'} style="margin-top:12px"><div class="fields">${stepper('dm', S.risk.dm, { label: '영업이익률 변화(%p)', min: -50, max: 20 })}${stepper('dr', S.risk.dr, { label: '매출 변화', min: -90, max: 50, step: 1 })}</div></div>
