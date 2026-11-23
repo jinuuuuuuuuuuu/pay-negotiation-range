@@ -754,3 +754,160 @@ details.more[open] > :not(summary) { animation: rise-in 280ms var(--ease) both; 
 /* 툴팁: 위로 살짝 떠오름 (막대 사이를 옮겨 다닐 때는 다시 재생하지 않음) */
 @keyframes tip-in { from { opacity: 0; transform: translateY(4px); } }
 .chart-tip:not([hidden]) { animation: tip-in 150ms var(--ease); }
+
+
+/* ================================================================ 요약 화면 개편 (11-23 디자인 피드백)
+   결론은 헤더 한 곳, 진한 노랑은 걸친 협상 구간 카드 하나, 장식은 회색 한 가지, 보조 글자 최소 13px */
+
+/* 상단바: 회사명은 헤더가 화면 밖으로 나갈 때만 */
+.topbar h1 { transition: opacity .2s var(--ease); }
+.topbar.title-hide h1 { opacity: 0; }
+
+/* 헤더 지표: 큰 숫자 하나 + 짧은 라벨 */
+.axis .k { font-size: 13px; }
+.axis .v { margin-top: 4px; font-size: 26px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+.axis .s { margin-top: 5px; font-size: 13px; }
+
+/* 걸친 협상 구간 카드: 라벨·이유 한 줄, 큰 범위, 미니 눈금자, 넣어 보기 링크 */
+.rangeline .rl-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rangeline .k { font-size: 13px; opacity: .8; }
+.rangeline .rl-why { font-size: 13px; font-weight: 600; }
+.rangeline .v { margin-top: 2px; font-size: 26px; letter-spacing: -0.03em; }
+.mini-ruler { margin-top: 12px; }
+.mr-bar { position: relative; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, 0.55); }
+.mr-bar i { position: absolute; top: 0; bottom: 0; }
+.mr-bar .mr-lo { background: transparent; }
+.mr-bar .mr-in { background: var(--ink); }
+.mr-bar .mr-in.mr-hold { background: rgba(31, 31, 31, 0.45); }
+.mr-bar .mr-hi { background: var(--orange); }
+.mr-ticks { display: flex; justify-content: space-between; margin-top: 4px; font-size: 12px; font-weight: 600; opacity: .7; }
+.rl-link { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(31, 31, 31, 0.14); display: flex; align-items: center; justify-content: space-between; text-decoration: none; color: var(--accent-ink); font-size: 15px; font-weight: 700; }
+.rl-link:active { opacity: .7; }
+.sheet-lip + .section { margin-top: 28px; }
+
+/* 소제목 아이콘: 회색 한 가지 */
+.section > h2.hd .h-ic { background: var(--hold-soft); color: var(--ink-2); }
+
+/* 태그: 회색 한 가지, 13px */
+.keys li { font-size: 13px; }
+
+/* 임금 막대그래프: 다른 회사 막대는 옅게, 글자는 크게 (뷰박스 축소를 감안해 13px) */
+.chart.wage .bar { fill: #DCDCD9; }
+.chart.wage .bar.sel { fill: var(--ink-2); }
+.chart.wage .cl { font-size: 13px; }
+.chart.wage .cl-z { font-size: 12.5px; }
+.chart.wage .cl-m { font-size: 12.5px; }
+.chart.wage .pill-us text { font-size: 12.5px; }
+.legend-row { font-size: 13px; }
+.chart-tip .hint { margin-top: 2px; font-size: 12px; color: var(--accent); }
+
+/* 비교군 목록: 임금 카드 하단의 접는 링크 */
+details.more.inline { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+details.more.inline > summary { font-size: 15px; font-weight: 650; padding: 4px 0; }
+
+/* 이익률 카드 안 보조 지표 줄 */
+.kv-lines { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.kv-lines dt span { color: var(--ink-3); font-size: 13px; margin-left: 4px; }
+.kv-lines dd .muted { font-weight: 500; }
+
+/* 사건 개요: 문장을 짧은 항목으로 */
+.scn-desc { margin: 0; padding: 0; list-style: none; }
+.scn-desc li { position: relative; padding-left: 12px; line-height: 1.5; word-break: keep-all; }
+.scn-desc li + li { margin-top: 4px; }
+.scn-desc li::before { content: ""; position: absolute; left: 0; top: 0.68em; width: 4px; height: 4px; border-radius: 50%; background: var(--ink-3, #9A9A96); }
+
+/* ================================================================ 모션 규칙 (11-23)
+   들어오기 = Ease out · 나가기 = Ease in · 상태 전환 = Ease in out · 지속 0.2~0.4초
+   스낵바(아래에서 슬라이드) · 토스트(제자리 페이드) · 팝업(90%→100% 스케일) · 바텀시트(아래에서 슬라이드)
+   좋아요(스케일+스프링) · 체크(선 그리기, in-out) · 로딩(Linear 회전) · 타이틀(한 줄씩 Stagger) */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-s: 200ms; --dur-m: 300ms; --dur-l: 400ms;
+}
+@keyframes m-fade-in { from { opacity: 0; } }
+@keyframes m-fade-out { to { opacity: 0; } }
+@keyframes m-slide-up { from { opacity: 0; transform: translateY(24px); } }
+@keyframes m-scale-in { from { opacity: 0; transform: scale(0.9); } }
+@keyframes m-scale-out { to { opacity: 0; transform: scale(0.96); } }
+@keyframes m-rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes m-spring { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes m-spin { to { transform: rotate(360deg); } }
+
+/* 토스트 → 막대 툴팁: 제자리 페이드 인/아웃 */
+.chart-tip:not([hidden]) { animation: m-fade-in var(--dur-s) var(--ease-out) both; }
+.chart-tip.is-out { animation: m-fade-out var(--dur-s) var(--ease-in) both; }
+
+/* 팝업 → 비교군 주의(ⓘ): 90% → 100% 스케일, 닫을 때 Ease in */
+.wage-warn { transform-origin: 100% 0; }
+.wage-warn:not([hidden]) { animation: m-scale-in var(--dur-m) var(--ease-out) both; }
+.wage-warn.is-out { animation: m-scale-out var(--dur-s) var(--ease-in) both; }
+
+/* 바텀시트 → 걸친 협상 구간 카드: 아래에서 슬라이드 인 */
+.sheet-lip .rangeline { animation: m-slide-up var(--dur-l) var(--ease-out) 120ms both; }
+
+/* 스낵바 → 결과 안내(callout): 아래에서 슬라이드 인 */
+.callout { animation: m-slide-up var(--dur-m) var(--ease-out) both; }
+
+/* 펼침 목록 → 바텀시트 기준: 아래에서 슬라이드 */
+details.more[open] > :not(summary) { animation: m-slide-up var(--dur-m) var(--ease-out) both; }
+
+/* 타이틀·서브타이틀: 한 줄씩 Stagger (헤더 → 섹션 제목 → 태그 → 본문) */
+.hero .co, .hero .ind, .hero .axes { animation: m-rise var(--dur-l) var(--ease-out) both; }
+.hero .ind { animation-delay: 60ms; }
+.hero .axes { animation-delay: 120ms; }
+.view-in > :not(.hero):not(.sheet-lip) { animation: none; }
+.view-in > .section > * { animation: m-rise var(--dur-m) var(--ease-out) both; }
+.view-in > .section > :nth-child(2) { animation-delay: 60ms; }
+.view-in > .section > :nth-child(3) { animation-delay: 120ms; }
+.view-in > .section > :nth-child(n+4) { animation-delay: 180ms; }
+.view-in > :not(.section):not(.hero):not(.sheet-lip) { animation: m-rise var(--dur-m) var(--ease-out) both; }
+.scn-title, .scn-head .keys { animation: m-rise var(--dur-m) var(--ease-out) both; }
+.scn-head .keys { animation-delay: 60ms; }
+.swap { animation: m-fade-in var(--dur-s) var(--ease-out); }
+
+/* 좋아요 → 누르는 버튼·칩: 누르면 줄었다가 Spring으로 톡 튕김, 선택되면 한 번 튕김 */
+.chip, .seg button, .stepper button, .tab, .icon-btn, .tip-btn, .btn {
+  transition: background-color var(--dur-s) var(--ease-io), color var(--dur-s) var(--ease-io), box-shadow var(--dur-s) var(--ease-io), transform var(--dur-m) var(--spring);
+}
+.chip:active, .seg button:active, .stepper button:active, .tab:active, .icon-btn:active, .tip-btn:active, .btn:active { transform: scale(0.92); transition-duration: 100ms; transition-timing-function: var(--ease-out); }
+.seg button[aria-pressed="true"], .tip-btn[aria-expanded="true"] { animation: m-spring var(--dur-m) var(--spring); }
+.tab[aria-current="page"] { animation: tab-in var(--dur-m) var(--spring); }
+
+/* 체크박스 → 스위치: 상태 전환은 Ease in out */
+.switch span { transition: background-color var(--dur-s) var(--ease-io); }
+.switch span::after { transition: transform var(--dur-s) var(--ease-io); }
+details.more > summary .ic { transition: transform var(--dur-s) var(--ease-io); }
+.topbar h1 { transition: opacity var(--dur-s) var(--ease-out); }
+.topbar.title-hide h1 { transition-timing-function: var(--ease-in); }
+
+/* 로딩: Linear로 일정하게 회전 */
+.spinner { display: inline-block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line-strong, #DCDCD9); border-top-color: var(--ink, #1F1F1F); animation: m-spin 800ms linear infinite; vertical-align: -4px; margin-right: 8px; }
+
+/* 그래프 등장: 각 움직임 0.4초 이내, Ease out */
+.chart.wage .bar, .chart.wage .bar-us { transition: transform var(--dur-l) var(--ease-out) var(--d, 0ms), fill 150ms var(--ease-io), stroke-width 150ms var(--ease-io); }
+.chart.wage .col-us, .chart.wage .pill-us { transition: opacity var(--dur-s) var(--ease-out) var(--d, 0ms), transform var(--dur-m) var(--spring) var(--d, 0ms); }
+.chart.wage.pre .bar, .chart.wage.pre .bar-us, .chart.wage.pre .col-us, .chart.wage.pre .pill-us { transition: none; }
+.enter .chart.rz .rz-lo, .enter .chart.rz .rz-in, .enter .chart.rz .rz-hi { animation: zone-in var(--dur-l) var(--ease-out) both; }
+.enter .chart.rz .rz-pill, .enter .chart.rz .rz-mk, .enter .chart.rz .rz-why { animation: fade-in var(--dur-m) var(--ease-out) 300ms both; }
+.enter .chart.rz .rz-chip, .enter .chart.rz .rz-pin { animation: m-scale-in var(--dur-m) var(--spring) 450ms both; }
+.enter .chart .zone, .enter .chart .zone-bad { animation: zone-in var(--dur-l) var(--ease-out) 80ms both; }
+.enter .chart .ln-us { animation: draw-in var(--dur-l) var(--ease-io) 80ms both; }
+.enter .chart .ln-ind, .enter .chart .vl { animation: fade-in var(--dur-m) var(--ease-out) both; }
+.enter .chart .pt-x, .enter .chart .pt-un, .enter .chart .pt-co { animation: pop-in var(--dur-m) var(--spring) 400ms both; }
+.enter .chart .pt-co { animation-delay: 460ms; }
+.enter .chart text { animation: fade-in var(--dur-m) var(--ease-out) 200ms both; }
+.enter .sbars .dbar .f { animation: grow-x var(--dur-l) var(--ease-out) both; }
+.enter .sbars li:nth-child(2) .dbar .f { animation-delay: 60ms; }
+.enter .sbars li:nth-child(3) .dbar .f { animation-delay: 120ms; }
+.enter .scn-shock, .enter .scn-head .badge { animation: pop-in var(--dur-m) var(--spring) 200ms both; }
+.dbar .f { transition: left var(--dur-m) var(--ease-io), width var(--dur-m) var(--ease-io); }
+.dbar .z { transition: left var(--dur-m) var(--ease-io); }
+.bf-s .bb i, .duel .mb i { transition: width var(--dur-m) var(--ease-io); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
+  .chart-tip.is-out, .wage-warn.is-out { animation: none !important; }
+}

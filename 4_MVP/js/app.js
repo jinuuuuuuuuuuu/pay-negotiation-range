@@ -46,7 +46,7 @@ function posClass(p) {
   return 'hold';
 }
 // 업계 불황 대비 점검의 행 이름·종류를 쉬운 말로
-const SCN_NAME = { 평상시: '불황이 없을 때', '모델 중앙(P50)': '모델 예측: 보통 시나리오', '모델 나쁜 쪽(P10)': '모델 예측: 최악의 시나리오' };
+const SCN_NAME = { 평상시: '기준 시나리오', '모델 중앙(P50)': '모델 예측: 보통 시나리오', '모델 나쁜 쪽(P10)': '모델 예측: 최악의 시나리오' };
 const scnName = (n) => u(SCN_NAME[n] || n);
 const SCN_KIND = { 평상시: '기본', '공통 사건': '모든 업계 공통', '우리 업종 사건': '우리 업계 사건', '최악의 해': '우리 업계 최악의 해', '직접 입력': '직접 입력' };
 
@@ -159,18 +159,18 @@ function wageChart(f) {
   // 우리 막대 위 먹색 알약 이름표 (키트·참고 이미지의 값 배지)
   const ux = sx(ui) + step / 2, uy = py(f.w);
   const labText = `우리 ${man0(f.w)}`;
-  const pw = 16 + [...labText].reduce((s, c) => s + (/[가-힣]/.test(c) ? 11.5 : c === ' ' ? 3 : 6.6), 0), ph2 = 20;
+  const pw = 18 + [...labText].reduce((s, c) => s + (/[가-힣]/.test(c) ? 13 : c === ' ' ? 3.4 : 7.4), 0), ph2 = 22;
   const px = clamp(ux - pw / 2, L, W - R - pw);
   let pyTop = uy - ph2 - 6;
   // 중앙선 라벨(왼쪽 위, 폭 약 100)과 겹치면 한 줄 위로
   if (isNum(med) && px < L + 108 && pyTop + ph2 > py(med) - 18 && pyTop < py(med) + 2) pyTop = py(med) - 20 - ph2;
   pyTop = Math.max(pyTop, T - 32);
   const lab = `<g class="pill-us" ${usLate}><rect x="${px.toFixed(1)}" y="${pyTop.toFixed(1)}" width="${pw.toFixed(1)}" height="${ph2}" rx="${ph2 / 2}"/>`
-    + `<text x="${(px + pw / 2).toFixed(1)}" y="${(pyTop + 14).toFixed(1)}" text-anchor="middle">${esc(labText)}</text></g>`;
+    + `<text x="${(px + pw / 2).toFixed(1)}" y="${(pyTop + 15.5).toFixed(1)}" text-anchor="middle">${esc(labText)}</text></g>`;
 
   // 양 끝 값(우리 막대가 끝에 있으면 위 라벨과 겹치므로 생략)
-  const ends = (ui === 0 ? '' : tx(sx(0), base + 15, man0(items[0].w), 'cl'))
-    + (ui === n - 1 ? '' : tx(sx(n), base + 15, man0(items[n - 1].w), 'cl', 'end'));
+  const ends = (ui === 0 ? '' : tx(sx(0), base + 17, man0(items[0].w), 'cl'))
+    + (ui === n - 1 ? '' : tx(sx(n), base + 17, man0(items[n - 1].w), 'cl', 'end'));
   const axis = `<line x1="${L}" x2="${W - R}" y1="${base}" y2="${base}" class="ax"/>${ends}${tx(W / 2, H - 4, '← 급여 낮음 · 높음 →', 'cl', 'middle')}`;
   return {
     svg: `<div class="chart-wrap" data-wage>
@@ -243,7 +243,21 @@ function enterOnce(box, cls = 'enter', ms = 1500) {
 
 // 등장 움직임: 그래프가 화면에 들어올 때 한 번. 기본 상태는 '보이는 상태'라 스크립트가 실패해도 화면이 비지 않는다.
 const REDUCED = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-function playWageEntrance(wrap) {
+// 나가는 움직임(Ease in): .is-out으로 사라지는 애니메이션을 재생한 뒤 hidden. 다시 보이면 취소.
+function fadeHide(el, ms = 200) {
+  if (!el || el.hidden) return;
+  if (REDUCED()) { el.hidden = true; return; }
+  el.classList.add('is-out');
+  clearTimeout(el._outT);
+  el._outT = setTimeout(() => { if (el.classList.contains('is-out')) { el.hidden = true; el.classList.remove('is-out'); } }, ms);
+}
+function fadeShow(el) {
+  if (!el) return;
+  clearTimeout(el._outT);
+  el.classList.remove('is-out');
+  el.hidden = false;
+}
+function playWageEntrance(wrap, onPlayed = () => {}) {
   if (REDUCED() || !('IntersectionObserver' in window)) return;
   const svg = wrap.querySelector('svg');
   const num = wrap.closest('.panel')?.querySelector('.big-num[data-count]');
@@ -253,7 +267,8 @@ function playWageEntrance(wrap) {
     io.disconnect();
     void svg.getBoundingClientRect();             // 대기 상태를 한 번 그린 뒤 시작
     requestAnimationFrame(() => { svg.classList.remove('pre'); svg.classList.add('play'); });
-    if (num) countUp(num, Number(num.dataset.count), 700);
+    if (num) countUp(num, Number(num.dataset.count), 400);
+    setTimeout(onPlayed, 1300);
   }, { threshold: 0.35 });
   io.observe(svg);
 }
@@ -275,26 +290,33 @@ function bindWageChart(root, items) {
   const svg = wrap.querySelector('svg'), tip = wrap.querySelector('.chart-tip');
   const bars = [...svg.querySelectorAll('rect[class^="bar"]')];
   let cur = -1;
-  const show = (i) => {
+  let touched = false;
+  const show = (i, hint = false) => {
     if (i < 0 || i >= items.length) return;
     cur = i;
     bars.forEach((b) => b.classList.toggle('sel', Number(b.dataset.i) === i));
     const it = items[i], r = items.length - i;
-    tip.innerHTML = `<strong>${esc(it.us ? `${it.name} (우리)` : it.name)}</strong><span class="num">${man(it.w)} · ${r}위</span>`;
-    tip.hidden = false;
+    tip.innerHTML = `<strong>${esc(it.us ? `${it.name} (우리)` : it.name)}</strong><span class="num">${man(it.w)} · ${r}위</span>${hint ? '<span class="hint">다른 막대도 눌러 보세요</span>' : ''}`;
+    fadeShow(tip);
     const box = svg.getBoundingClientRect(), bar = bars[i].getBoundingClientRect();
     const cx = bar.left + bar.width / 2 - box.left;
     const tw = tip.offsetWidth;
     tip.style.left = `${clamp(cx - tw / 2, 0, box.width - tw)}px`;
     tip.style.top = `${Math.max(bar.top - box.top - tip.offsetHeight - 8, 0)}px`;
   };
-  const hide = () => { cur = -1; tip.hidden = true; bars.forEach((b) => b.classList.remove('sel')); };
-  playWageEntrance(wrap);
+  const hide = () => { cur = -1; fadeHide(tip); bars.forEach((b) => b.classList.remove('sel')); };
+  // 등장이 끝나면 우리 막대에 툴팁을 한 번 띄워 '누르면 회사명이 나온다'를 알려 준다 (손대면 바로 사라짐)
+  playWageEntrance(wrap, () => {
+    if (touched || !svg.isConnected) return;
+    show(items.findIndex((x) => x.us), true);
+    setTimeout(() => { if (!touched && svg.isConnected) hide(); }, 2600);
+  });
   const at = (e) => { const t = e.target.closest('[data-i]'); return t ? Number(t.dataset.i) : -1; };
-  svg.addEventListener('pointerdown', (e) => { const i = at(e); if (i >= 0) { if (i === cur && e.pointerType !== 'mouse') hide(); else show(i); } });
+  svg.addEventListener('pointerdown', (e) => { touched = true; const i = at(e); if (i >= 0) { if (i === cur && e.pointerType !== 'mouse') hide(); else show(i); } });
   svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') { const i = at(e); if (i >= 0 && i !== cur) show(i); } });
   svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });
   svg.addEventListener('keydown', (e) => {
+    touched = true;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
       const start = cur < 0 ? items.findIndex((x) => x.us) : cur;
@@ -321,7 +343,7 @@ function wageHead(f, wc) {
       <p class="wage-claim num" aria-hidden="true">${claim}</p>
       <p class="sr-only">업계 중앙보다 ${isNum(d) ? (d === 0 ? '같음' : `${Math.abs(d).toLocaleString('ko-KR')}만 원 ${d > 0 ? '높음' : '낮음'}`) : '비교할 수 없음'}</p>
       ${f.peer_warn ? `<div class="wage-warn" id="wage-warn" hidden>${facts([['주의', esc(u(f.peer_warn))], ['기준', '비교군 매출 중앙값이 우리의 1/3 미만 또는 3배 초과']])}</div>` : ''}
-      <p class="wage-meta"><span class="badge rank num">${wc.n}곳 중 ${wc.rank}위</span><span class="num">${top} · ${esc(f.wage_pos || '')}</span></p>
+      <p class="wage-meta"><span class="badge rank num">${wc.n}곳 중 ${wc.rank}위</span><span class="num">${top}</span></p>
     </div>`;
 }
 
@@ -396,7 +418,7 @@ function rangeChart(f, rng, offers = null, compact = false) {
       <li><i class="sw rz-sw-in${hasUp ? '' : ' hold'}"></i>${hasUp ? '협상 구간' : '하한 이상'}</li>
       ${hasUp ? '<li><i class="sw rz-sw-hi"></i>업계보다 부담 큼</li>' : ''}
     </ul>`;
-  return `<p class="chart-y">기본급 인상률 <span>· 0%에서 오른쪽으로 갈수록 높음</span></p><svg class="chart rz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">${s}</svg>${legend}`;
+  return `<p class="chart-y">기본급 인상률</p><svg class="chart rz" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(aria)}">${s}</svg>${legend}`;
 }
 // 글자 폭 어림 (12.5px 굵게 알약 / 12px 칸 이름)
 const tw1 = (t) => [...t].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 12.5 : ch === ' ' || ch === '.' ? 3.6 : ch === '%' ? 10 : 7.4), 0) + 18;
@@ -406,9 +428,9 @@ const tw0 = (t) => [...String(t)].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 
 // 파스텔 4색: butter · peach · lilac · aqua (판정 색 파랑·초록·빨강과 겹치지 않게 고름)
 const TONES = ['butter', 'peach', 'stone', 'amber'];
 // 소제목 + 파스텔 아이콘 칩
-const h2 = (title, ic, tone) => `<h2 class="hd"><span class="h-ic t-${tone}">${icon(ic, 16)}</span>${title}</h2>`;
+const h2 = (title, ic) => `<h2 class="hd"><span class="h-ic t-stone">${icon(ic, 16)}</span>${title}</h2>`;
 // 소제목 아래 핵심 태그 (문장 대신)
-const keys = (arr) => `<ul class="keys">${arr.filter(Boolean).map((t, i) => `<li class="t-${TONES[i % 4]}">${t}</li>`).join('')}</ul>`;
+const keys = (arr) => `<ul class="keys">${arr.filter(Boolean).map((t) => `<li class="t-stone">${t}</li>`).join('')}</ul>`;
 // 항목 | 내용 목록
 const facts = (rows, head = '') => `${head ? `<p class="facts-h">${head}</p>` : ''}<dl class="facts">${rows.filter(Boolean).map(([k, v, s]) => `<dt>${k}</dt><dd>${v}${s ? `<span class="s">${s}</span>` : ''}</dd>`).join('')}</dl>`;
 // 지표 타일 (카드 밖, 섹션 안에 나란히)
@@ -486,28 +508,52 @@ function viewFind() {
 }
 
 // ---------------------------------------------------------------- 화면: 요약·진단
-function heroCard(f, rng) {
-  const gap = isNum(f.wage_gap_pct) ? `업계 중앙 대비 ${signed(f.wage_gap_pct)}` : '';
-  const capSub = f.capacity === '여력 제약' ? u(f.capacity_reason || '') : `영업이익률 ${pctRaw(f.opm_pct)}${isNum(f.opm_ind_pct) ? ` · 업계 ${pctRaw(f.opm_ind_pct)}` : ''}`;
-  let line;
+// 디자인 원칙(11-23): 결론은 헤더 한 곳에만, 진한 노랑은 걸친 협상 구간 카드 하나에만, 아래 섹션은 근거(그래프)만.
+// 헤더 안 미니 눈금자: 기본급 인상률 한 줄에 뒤처짐(옅은 먹색) · 협상 구간(먹색) · 부담 큼(주황)
+function miniRuler(rng) {
+  const g = rng['하한'], up = rng['상한'], showMax = CTX.C.RANGE_UPPER_SHOW_MAX;
+  if (!isNum(g)) return '';
+  const hasUp = isNum(up), ok = hasUp && up >= g, over = hasUp && up > showMax;
+  const M = Math.min(Math.ceil(Math.max(0.1, g * 1.5, ok && !over ? up * 1.25 : 0) * 100) / 100, 0.2);
+  const p = (x) => clamp(x / M, 0, 1) * 100;
+  const xg = p(g), xu = hasUp ? (over ? 100 : p(up)) : 100;
+  const seg = ok ? [[0, xg, 'lo'], [xg, xu, 'in'], [xu, 100, 'hi']] : hasUp ? [[0, xg, 'lo'], [xg, 100, 'hi']] : [[0, xg, 'lo'], [xg, 100, 'in hold']];
+  return `<div class="mini-ruler" aria-hidden="true">
+      <div class="mr-bar">${seg.map(([a, b, c]) => `<i class="mr-${c.split(' ').join(' mr-')}" style="left:${a.toFixed(1)}%;width:${Math.max(b - a, 0).toFixed(1)}%"></i>`).join('')}</div>
+      <div class="mr-ticks num"><span>0%</span><span>${Math.round(M * 100)}%</span></div>
+    </div>`;
+}
+function heroCard(f, rng, wc) {
   const state = rng['상한 상태'];
+  let line;
   if (state === '비교군 인상률 없음') {
     line = `<a class="rangeline" href="#/f/${f.id}/range"><div class="k">협상 구간</div><div class="v">업계 인상률 넣고 계산 ${icon('chevron-right', 20)}</div><div class="s">하한·상한을 바로 계산</div></a>`;
-  } else if (state === CTX.C.RANGE_HOLD_TEXT) {
-    line = `<div class="rangeline"><div class="k">협상 구간</div><div class="v">하한 ${pct(rng['하한'])}</div><div class="s">${esc(state)}</div></div>`;
   } else {
-    line = `<div class="rangeline"><div class="k">협상 구간</div><div class="v">하한 ${pct(rng['하한'])} ~ 상한 ${esc(rng['상한 표시'])}</div><div class="s">${esc(rng['구간 해석'])}</div></div>`;
+    const hold = state === CTX.C.RANGE_HOLD_TEXT, up = rng['상한'], g = rng['하한'];
+    // 상한이 하한보다 낮으면 범위(~)가 거꾸로 읽히므로 둘을 나눠 표시
+    const v = hold ? `하한 ${pct(g)}` : up >= g ? `${pct(g)} ~ ${esc(rng['상한 표시'])}` : `하한 ${pct(g)} · 상한 ${esc(rng['상한 표시'])}`;
+    const why = hold ? '업계 적자 → 상한 보류'
+      : state === '3년 합산 영업적자' ? '3년 적자 → 상한 0%'
+        : up >= g ? '업계와 같은 부담까지 인상 가능' : '업계만큼 주면 부담이 업계보다 큼';
+    line = `<div class="rangeline">
+        <div class="rl-top"><span class="k">협상 구간</span><span class="rl-why">${why}</span></div>
+        <div class="v num">${v}</div>
+        ${miniRuler(rng)}
+        <a class="rl-link" href="#/f/${f.id}/range">노조안·회사안 넣어 보기 ${icon('chevron-right', 18)}</a>
+      </div>`;
   }
-  return `<section class="hero">
+  const ax = [];
+  if (f.wage_pos && f.wage_pos !== '비교 불가' && isNum(f.wage_gap_pct)) {
+    ax.push(`<div class="axis"><div class="k">업계 대비 임금</div><div class="v num">${signed(f.wage_gap_pct)}</div><div class="s">${esc(f.wage_pos)}${wc.rank ? ` · ${wc.n}곳 중 ${wc.rank}위` : ''}</div></div>`);
+  }
+  if (isNum(f.opm_pct)) {
+    const sub = f.capacity === '여력 제약' ? u(f.capacity_reason || '제약') : `${isNum(f.opm_ind_pct) ? `업계 ${pctRaw(f.opm_ind_pct)} · ` : ''}${CAP_LABEL[f.capacity] || ''}`;
+    ax.push(`<div class="axis"><div class="k">영업이익률 · 3년</div><div class="v num">${pctRaw(f.opm_pct)}</div><div class="s">${esc(sub.replace(/ · $/, ''))}</div></div>`);
+  }
+  return `<section class="hero" id="hero">
     <h2 class="co">${esc(f.name)}</h2>
     <p class="ind">${esc(f.ind2_name || '')}${f.stock_code ? ` · ${f.stock_code}` : ''}${f.market ? ` · ${esc(f.market)}` : ''}</p>
-    ${(() => {
-      const ax = [
-        f.wage_pos && f.wage_pos !== '비교 불가' ? `<div class="axis"><div class="k">업계 대비 임금 위치</div><div class="v">${esc(f.wage_pos)}</div><div class="s">${gap}</div></div>` : '',
-        CAP_LABEL[f.capacity] && f.capacity !== '판정 불가' ? `<div class="axis"><div class="k">업계 대비 이익률</div><div class="v">${esc(CAP_LABEL[f.capacity])}</div><div class="s">${esc(capSub)}</div></div>` : '',
-      ].filter(Boolean);
-      return ax.length ? `<div class="axes${ax.length === 1 ? ' one' : ''}">${ax.join('')}</div>` : '';
-    })()}
+    ${ax.length ? `<div class="axes${ax.length === 1 ? ' one' : ''}">${ax.join('')}</div>` : ''}
   </section>
   <div class="sheet-lip">
     ${line}
@@ -542,71 +588,70 @@ function viewSummary(id) {
   const opm = f.opm_pct, ind = f.opm_ind_pct;
   const sc = Math.max(Math.abs(opm || 0), Math.abs(ind || 0), 1) * 1.15;
   const bar = (v, cls) => `<div class="tr"><div class="fi ${cls}${isNum(v) && v < 0 ? ' neg' : ''}" style="width:${isNum(v) ? Math.min(Math.abs(v) / sc * 100, 100) : 0}%"></div></div>`;
-  const hasRange = rng['상한 상태'] !== '비교군 인상률 없음';
+  const peerList = peers.length ? `<details class="more inline">
+      <summary>비교군 ${peers.length}곳 보기 ${icon('chevron-right', 18)}</summary>
+      <ul class="peers-list">${[...peers, ...(isNum(f.w) ? [{ ...f, us: true }] : [])].sort((a, b) => b.w - a.w).map((p, i) => `<li${p.us ? ' class="us"' : ''}>
+          <span class="chip-sq num">${i + 1}</span>
+          <span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.us ? '우리 회사' : p.ind2 === f.ind2 ? '같은 업계' : '다른 업계 분류'}</span></span>
+          <span class="num v">${man(p.w)}</span></li>`).join('')}</ul>
+      <p class="note" style="margin-top:8px">급여 높은 순 · 1인당 급여 = 급여총액 ÷ 직원수</p>
+    </details>` : '';
   $view.innerHTML = `
-    ${heroCard(f, rng)}
+    ${heroCard(f, rng, wc)}
     <section class="section">
-      ${h2('한 줄 진단', 'sliders-horizontal', 'butter')}
+      ${h2('한 줄 진단', 'sliders-horizontal')}
       <div class="panel diag t-butter">${diagnosis(f, rng, wc)}</div>
     </section>
-    ${hasRange ? `<section class="section">
-      ${h2('협상 구간', 'scale', 'peach')}
-      <div class="panel enter">${rangeChart(f, rng, null, true)}
-        <a class="btn" href="#/f/${id}/range" style="margin-top:14px">노조안·회사안 넣어 보기 ${icon('chevron-right', 20)}</a>
-      </div>
-    </section>` : ''}
     ${wc.rank ? `<section class="section">
-      ${h2('업계 대비 임금 위치', 'users', 'stone')}
-      ${keys(['비교군 20곳', '같은 업계·비슷한 규모', '1인당 급여 3년'])}
+      ${h2('업계 대비 임금 위치', 'users')}
       <div class="panel">
         ${wageHead(f, wc)}
         ${wc.svg}
         <ul class="legend-row">
-          <li><i class="sw sw-zone-q"></i>하위·상위 25% = 판정 기준</li>
           <li><i class="sw sw-us"></i>우리 회사</li>
           <li><i class="sw sw-med"></i>업계 중앙</li>
-          <li class="hint">${icon('info', 14)}막대 누르면 회사명</li>
         </ul>
         ${f.wage_pos === '임금 낮음' ? `<div class="turnover">
             <p class="facts-h">임금 위치별 정규직 자발적 이직률 (WPS)</p>
-            ${tiles([{ k: '하위 20%', v: '17.8%', tone: 'peach' }, { k: '상위 20%', v: '12.7%', tone: 'amber' }])}
-            ${keys(['차이 약 5%p'])}
+            ${tiles([{ k: '하위 20%', v: '17.8%', tone: 'peach' }, { k: '상위 20%', v: '12.7%', tone: 'stone' }])}
           </div>` : ''}
+        ${peerList}
       </div>
     </section>` : ''}
     <section class="section"${isNum(opm) ? '' : ' hidden'}>
-      ${h2('업계 대비 이익률', 'trending-up', 'amber')}
-      ${keys(['3년 합산 영업이익률', isNum(ind) ? '업계 중앙과 비교' : ''])}
+      ${h2('업계 대비 이익률', 'trending-up')}
       <div class="panel">
         ${CAP_LABEL[f.capacity] && f.capacity !== '판정 불가' ? `<div class="verdict" style="margin-bottom:14px"><span class="vp"><b>판정</b>${esc(CAP_LABEL[f.capacity])}</span></div>` : ''}
         <div class="bars2">
           <div class="b"><span>우리 회사</span>${bar(opm, '')}<span class="val num">${pctRaw(opm)}</span></div>
           ${isNum(ind) ? `<div class="b"><span>업계 중앙</span>${bar(ind, 'ind')}<span class="val num">${pctRaw(ind)}</span></div>` : ''}
         </div>
+        <dl class="kv kv-lines">
+          ${isNum(f.labor_ratio_pct) ? `<dt>인건비율 <span>급여 ÷ 매출</span></dt><dd class="num">${pctRaw(f.labor_ratio_pct)}${isNum(f.peer_labor_ratio_pct) ? `<span class="muted"> · 업계 ${pctRaw(f.peer_labor_ratio_pct)}</span>` : ''}</dd>` : ''}
+          ${isNum(f.opm_sd_pctp) ? `<dt>이익률 평소 변동</dt><dd class="num">${f.opm_sd_pctp.toFixed(1)}%p</dd>` : ''}
+        </dl>
+        ${f.cf_flag ? `<ul class="flags">${[f.cf_flag].map((x) => `<li>${icon('circle-alert', 15)}${esc(u(x))}</li>`).join('')}</ul>` : ''}
       </div>
-      ${tiles([
-        { k: '인건비율 · 급여÷매출', v: pctRaw(f.labor_ratio_pct), s: isNum(f.peer_labor_ratio_pct) ? `업계 ${pctRaw(f.peer_labor_ratio_pct)}` : '', tone: 'stone' },
-        isNum(f.opm_sd_pctp) ? { k: '이익률 평소 변동', v: `${f.opm_sd_pctp.toFixed(1)}%p`, tone: 'peach' } : null,
-      ])}
-      ${f.cf_flag ? `<ul class="flags">${[f.cf_flag].filter(Boolean).map((x) => `<li>${icon('circle-alert', 15)}${esc(u(x))}</li>`).join('')}</ul>` : ''}
     </section>
-    ${peers.length ? `<section class="section">
-      <details class="more panel">
-        <summary><span class="sum-l"><span class="h-ic t-stone">${icon('users', 16)}</span>비교군 ${peers.length}곳 보기</span>${icon('chevron-right', 18)}</summary>
-        <ul class="peers-list">${[...peers, ...(isNum(f.w) ? [{ ...f, us: true }] : [])].sort((a, b) => b.w - a.w).map((p, i) => `<li${p.us ? ' class="us"' : ''}>
-            <span class="chip-sq num">${i + 1}</span>
-            <span class="grow"><span class="t">${esc(p.name)}</span><span class="s">${p.us ? '우리 회사' : p.ind2 === f.ind2 ? '같은 업계' : '다른 업계 분류'}</span></span>
-            <span class="num v">${man(p.w)}</span></li>`).join('')}</ul>
-        ${keys(['급여 높은 순', '우리 회사 포함', '1인당 급여 = 급여총액 ÷ 직원수'])}
-      </details>
-    </section>` : ''}`;
+    ${!wc.rank && peerList ? `<section class="section"><div class="panel">${peerList}</div></section>` : ''}`;
   bindWageChart($view, wc.items);
   const tb = $view.querySelector('.tip-btn');
   if (tb) tb.addEventListener('click', () => {
     const open = tb.getAttribute('aria-expanded') !== 'true';
     tb.setAttribute('aria-expanded', String(open));
-    $view.querySelector('#wage-warn').hidden = !open;
+    const ww = $view.querySelector('#wage-warn');
+    if (open) fadeShow(ww); else fadeHide(ww);
   });
+  // 회사명은 헤더에만. 헤더가 화면 밖으로 나가면 상단바에 이름이 나타난다.
+  const hero = document.getElementById('hero');
+  $top.classList.add('title-hide');
+  if (hero && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(([e]) => {
+      if (!document.body.contains(hero)) { io.disconnect(); $top.classList.remove('title-hide'); return; }
+      $top.classList.toggle('title-hide', e.isIntersecting);
+    }, { rootMargin: '-56px 0px 0px 0px', threshold: 0 });
+    io.observe(hero);
+  }
 }
 
 // ---------------------------------------------------------------- 공통 입력 부품
@@ -678,9 +723,9 @@ function viewRange(id) {
     </section>
     <section class="section">
       ${h2('두 안 넣기', 'sliders-horizontal', 'stone')}
-      <div class="offer t-butter"><div class="offer-head"><h3><span class="who union"></span>노조안</h3></div>
+      <div class="offer t-butter"><div class="offer-head"><h3>노조안</h3></div>
         <div class="fields">${stepper('ub', S.union.base, { label: '기본급 인상률' })}${stepper('ux', S.union.bonus, { label: '일시 성과급(급여 대비)' })}</div></div>
-      <div class="offer t-peach"><div class="offer-head"><h3><span class="who"></span>회사안</h3></div>
+      <div class="offer t-peach"><div class="offer-head"><h3>회사안</h3></div>
         <div class="fields">${stepper('cb', S.company.base, { label: '기본급 인상률' })}${stepper('cx', S.company.bonus, { label: '일시 성과급(급여 대비)' })}</div></div>
       <details class="more panel">
         <summary><span class="sum-l"><span class="h-ic t-amber">${icon('sliders-horizontal', 16)}</span>두 안 공통 가정</span>${icon('chevron-right', 18)}</summary>
@@ -735,7 +780,7 @@ function viewRange(id) {
     // 내년 업계 중앙 급여 = 내년 우리 1인당 급여 ÷ (1 + 업계 중앙 대비 차이)
     const nU = R('내년 1인당 급여')['노조안'], gU = R('내년 예상 임금 차이(%)')['노조안'];
     const medNext = isNum(nU) && isNum(gU) ? nU / (1 + gU / 100) : NaN;
-    const head = (who, o) => `<span class="bt"><span class="who${who === '노조안' ? ' union' : ''}"></span>${who}</span><span class="bi num">기본급 ${pct(o.base)}<br>성과급 ${pct(o.bonus)}</span>${pos(who)}`;
+    const head = (who, o) => `<span class="bt">${who}</span><span class="bi num">기본급 ${pct(o.base)}<br>성과급 ${pct(o.bonus)}</span>${pos(who)}`;
     morph(document.getElementById('cmpbox'), `
       ${duel({ heads: [head('노조안', S.union), head('회사안', S.company)], tones: ['butter', 'peach'], rows: [
         { lab: '회사 부담 증가', sub: '1년', ...two('회사 부담 증가(1년)', won), diff: dWon },
@@ -905,6 +950,22 @@ const COMMON_DESC = {
   코로나형: '2020년 코로나19 확산 때 각 업계가 실제로 겪은 영업이익률·매출 변화를 다시 적용합니다.',
   '원자재·금리형': '2022년 원자재 가격 급등과 금리 인상 때 각 업계가 실제로 겪은 변화를 다시 적용합니다.',
 };
+// 사건 설명을 문장·쉼표(괄호 밖) 단위로 나눠 짧은 항목 목록으로
+function descList(t) {
+  const parts = [];
+  for (const sen of String(t).split(/(?<=[.。])\s+/)) {
+    let depth = 0, cur = "";
+    for (let i = 0; i < sen.length; i++) {
+      const c = sen[i];
+      if (c === "(") depth++; else if (c === ")") depth = Math.max(0, depth - 1);
+      if (c === "," && sen[i + 1] === " " && depth === 0) { parts.push(cur); cur = ""; i++; continue; }
+      cur += c;
+    }
+    parts.push(cur);
+  }
+  const items = parts.map((x) => x.trim().replace(/[.。]$/, "")).filter(Boolean);
+  return items.length > 1 ? `<ul class="scn-desc">${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : esc(items[0] || "");
+}
 function scnInfo(name, kind) {
   if (kind === '직접 입력') return { desc: '직접 정한 영업이익률·매출 변화를 적용합니다.', src: [] };
   if (kind === '최악의 해') return { desc: '우리 업계의 영업이익률이 가장 크게 떨어졌던 해의 변화를 다시 적용합니다.', src: [] };
@@ -970,14 +1031,14 @@ function viewRisk(id) {
       const lo = Math.min(0, ...vals) * 1.15 - 0.5, hi = Math.max(0, ...vals) * 1.15 + 0.5;
       body = `<hr class="divider"><p class="small" style="font-weight:600">회사안을 지급한 뒤 내년 영업이익률</p>
         <ul class="sbars">${rows.map(([lab, r]) => `<li><span class="lab">${lab}</span>${dbar(r['지급 후 영업이익률(%)'], lo, hi)}<span class="val num${r['지급 후 영업이익률(%)'] < 0 ? ' neg' : ''}">${pctRaw(r['지급 후 영업이익률(%)'])}</span></li>`).join('')}</ul>
-        ${tiles([{ k: '최악일 때 지급 후 영업이익', v: won(rows[0][1]['지급 후 영업이익']), s: rows[0][1]['지급 때문에 적자 전환'] ? '지급 때문에 적자 전환' : '흑자 유지', tone: rows[0][1]['지급 때문에 적자 전환'] ? 'peach' : 'amber' }])}`;
+        ${tiles([{ k: '최악일 때 지급 후 영업이익', v: won(rows[0][1]['지급 후 영업이익']), s: rows[0][1]['지급 때문에 적자 전환'] ? '지급 때문에 적자 전환' : rows[0][1]['지급 후 적자'] ? '지급 전부터 적자' : '흑자 유지', tone: rows[0][1]['지급 때문에 적자 전환'] ? 'peach' : 'amber' }])}`;
     }
     const $fc = document.getElementById('fcbox');
     enterOnce($fc);
     morph($fc, `<div class="prob"><span class="v num">${isNum(p) ? `${Math.round(p * 100)}%` : '—'}</span><span class="muted small">지금 방식대로일 때 다음 해 영업적자 확률</span></div>${body}
-      ${keys(['최악·최적 = 하위·상위 10%'])}`);
+      <div style="margin-top:14px">${keys(['최악·최적 = 하위·상위 10%'])}</div>`);
     const pv = $fc.querySelector('.prob .v');
-    if (pv && isNum(p)) countUp(pv, Math.round(p * 100), 700, (v) => `${Math.round(v)}%`);
+    if (pv && isNum(p)) countUp(pv, Math.round(p * 100), 400, (v) => `${Math.round(v)}%`);
   };
   const draw = () => {
     const custom = S.risk.pick === '직접 입력' ? { 이익률: S.risk.dm, 매출: S.risk.dr } : null;
@@ -1001,7 +1062,7 @@ function viewRisk(id) {
     morph($box, `
       <div class="scn-head"><div><h3 class="scn-title">${esc(scnLabel(S.risk.pick))}</h3>${keys([esc(SCN_KIND[r['종류']] || r['종류']), esc(u(r['충격 단위'] || ''))])}</div>${flag}</div>
       ${facts([
-        info.desc ? ['무슨 일', esc(info.desc)] : null,
+        info.desc ? ['사건 개요', descList(info.desc)] : null,
         shock ? ['충격 크기', `<span class="scn-shock">${esc(shock)}</span>`] : null,
         
       ])}
@@ -1009,9 +1070,9 @@ function viewRisk(id) {
       <p class="facts-h">회사안 지급 후 내년 영업이익률</p>
       <ul class="sbars">
         <li><span class="lab">${scnName('평상시')}</span>${dbar(v0, lo, hi)}<span class="val num${v0 < 0 ? ' neg' : ''}">${pctRaw(v0)}</span></li>
-        <li><span class="lab">이 불황이 오면</span>${dbar(v1, lo, hi)}<span class="val num${v1 < 0 ? ' neg' : ''}">${pctRaw(v1)}</span></li>
+        <li><span class="lab">불황 시나리오</span>${dbar(v1, lo, hi)}<span class="val num${v1 < 0 ? ' neg' : ''}">${pctRaw(v1)}</span></li>
       </ul>
-      <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '이 불황이 오면'], tones: ['stone', 'peach'], rows: [
+      <div style="margin-top:14px">${duel({ heads: [scnName('평상시'), '불황 시나리오'], tones: ['stone', 'peach'], rows: [
         { lab: '지급 후 영업이익', a: won(base['지급 후 영업이익']), b: won(r['지급 후 영업이익']), an: base['지급 후 영업이익'], bn: r['지급 후 영업이익'], aneg: base['지급 후 영업이익'] < 0, bneg: r['지급 후 영업이익'] < 0, diff: dWon },
         { lab: '내년 매출', a: won(base['내년 매출']), b: won(r['내년 매출']), an: base['내년 매출'], bn: r['내년 매출'], diff: dWon },
         { lab: '이익 기준 성과급', sub: '지금 대비', a: ratio(base['이익연동 ÷ 고정']), b: ratio(r['이익연동 ÷ 고정']), an: base['이익연동 ÷ 고정'], bn: r['이익연동 ÷ 고정'], diff: (v) => `${v.toFixed(2)}배` },
