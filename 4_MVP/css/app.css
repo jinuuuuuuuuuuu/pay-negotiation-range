@@ -972,3 +972,25 @@ h2.hd { gap: 0; }
 .cond-grid dd span { display: block; }
 .cond-grid dd span + span { margin-top: 1px; }
 .cond-note { margin: 8px 0 0; font-size: 13px; color: var(--ink-3); }
+
+/* ================================================================ 첫 화면: 노사랑 브랜드 (네이버·당근 참고)
+   가운데 로고 → 이름 → 한 줄 소개 → 검색창. 검색창이 화면의 주인공. */
+.brand { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 36px 0 28px; }
+.brand-logo { width: 112px; height: 112px; border-radius: 30px; object-fit: cover; box-shadow: 0 10px 28px rgba(255, 176, 30, .22); }
+.brand-name { margin: 18px 0 0; font-size: 34px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.1; color: var(--ink); }
+.brand-swoosh { display: block; width: 76px; height: 8px; margin-top: 4px; }
+.brand-swoosh path { fill: none; stroke: var(--accent, #FFCD4A); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 130; stroke-dashoffset: 0; }
+.brand-tag { margin: 12px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-2); word-break: keep-all; }
+.find-meta { margin: 12px 0 0; font-size: 13px; color: var(--ink-3); }
+.find-meta b { font-weight: 650; color: var(--ink-2); }
+
+/* 등장: 로고가 살짝 커지며 → 이름 → 밑줄이 그려지고 → 소개 → 검색창 */
+.view-in .brand-logo { animation: m-scale-in var(--dur-l) var(--ease-out) both; }
+.view-in .brand-name { animation: m-rise var(--dur-m) var(--ease-out) 80ms both; }
+.view-in .brand-swoosh path { animation: swoosh-draw var(--dur-l) var(--ease-io) 200ms both; }
+.view-in .brand-tag { animation: m-rise var(--dur-m) var(--ease-out) 160ms both; }
+.view-in .search { animation: m-rise var(--dur-m) var(--ease-out) 240ms both; }
+.view-in .examples { animation: m-rise var(--dur-m) var(--ease-out) 300ms both; }
+@keyframes swoosh-draw { from { stroke-dashoffset: 130; } }
+.brand ~ .examples { justify-content: center; }
+.brand ~ .find-foot .find-meta { text-align: left; }

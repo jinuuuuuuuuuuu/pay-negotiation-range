@@ -7,7 +7,6 @@ const $top = document.getElementById('topbar');
 const $tabs = document.getElementById('tabbar');
 let CTX = null;
 let PEERS_RAW = null;
-let LAST_FIRM = null;
 const STATE = new Map();              // 회사별 입력값 (노조안·회사안, 가정, 이익연동, 불황 점검 설정)
 
 // ---------------------------------------------------------------- 형식
@@ -95,13 +94,13 @@ function peersOf(id) {
 }
 
 // ---------------------------------------------------------------- 틀
-function setTop({ title = '', back = null, dark = false, about = true } = {}) {
+function setTop({ title = '', back = null, dark = false } = {}) {
   $top.className = `topbar${dark ? ' on-dark' : ''}`;
   $view.classList.toggle('dark-top', dark);
   $top.innerHTML = `
     ${back ? `<a class="icon-btn" href="${back}" aria-label="뒤로">${icon('chevron-left', 24)}</a>` : '<span class="spacer"></span>'}
     <h1>${esc(title)}</h1>
-    ${about ? `<a class="icon-btn" href="#/about" aria-label="계산 근거">${icon('info', 22)}</a>` : '<span class="spacer"></span>'}`;
+    <span class="spacer"></span>`;
   document.querySelector('meta[name="theme-color"]').content = dark ? '#1F1F1F' : '#F3F3F2';
 }
 function setTabs(id, active) {
@@ -479,12 +478,14 @@ function dbar(v, lo, hi) {
 // ---------------------------------------------------------------- 화면: 회사 찾기
 const EXAMPLES = ['현대자동차', '삼성전자', '오뚜기', 'LG유플러스', 'HD현대중공업'];
 function viewFind() {
-  setTop({ title: '', about: true });
+  setTop({ title: '' });
   setTabs(null);
   $view.innerHTML = `
-    <div class="find-head">
-      <h1>요구안을 받았을 때,<br>어디서 협상을 시작할까</h1>
-      ${keys(['업계 비교군 20곳과 비교해 협상 구간과 그 근거, 위험까지 봅니다'])}
+    <div class="brand">
+      <img class="brand-logo" src="assets/logo.png" alt="" width="112" height="112">
+      <h1 class="brand-name">노사랑</h1>
+      <svg class="brand-swoosh" viewBox="0 0 120 12" aria-hidden="true"><path d="M4 9 Q60 -1 116 5" /></svg>
+      <p class="brand-tag">노사가 만날 임금 인상 구간,<br>공시 데이터로 찾아 드립니다</p>
     </div>
     <div class="search">
       ${icon('search', 20)}
@@ -494,10 +495,7 @@ function viewFind() {
       ${EXAMPLES.filter((n) => CTX.list.some((f) => f.name === n)).map((n) => `<button class="chip" data-ex="${esc(n)}">${esc(n)}</button>`).join('')}
     </div>
     <ul class="results" id="res" aria-live="polite"></ul>
-    <div class="find-foot">
-      <a class="link-row" href="#/about">${icon('info', 20)}<span>데이터와 계산 근거</span></a>
-      ${tiles([{ k: 'DART 공시 회사', v: `${CTX.list.length.toLocaleString('ko-KR')}곳`, tone: 'stone' }, { k: '진단 구간', v: `${CTX.meta.start}~${CTX.meta.end}`, tone: 'stone' }])}
-    </div>`;
+`;
   const $q = document.getElementById('q');
   const $res = document.getElementById('res');
   const run = () => {
@@ -1117,41 +1115,6 @@ function viewRisk(id) {
   draw();
 }
 
-// ---------------------------------------------------------------- 화면: 계산 근거
-function viewAbout() {
-  setTop({ title: '계산 근거', back: LAST_FIRM ? `#/f/${LAST_FIRM}` : '#/', about: false });
-  setTabs(null);
-  const nEvents = new Set((CTX.catalog || []).filter((r) => r['확인수준'] !== '원인 미확인').map((r) => r['사건ID'])).size;
-  const card = (title, ic, tone, body) => `<section class="section">${h2(title, ic, tone)}<div class="panel">${body}</div></section>`;
-  $view.innerHTML = `<article class="about">
-    ${card('데이터', 'info', 'butter', facts([
-      ['출처', 'DART 공시 패널 2015~2025'],
-      ['대상', `직원 10명 이상 비금융 ${CTX.list.length.toLocaleString('ko-KR')}곳`],
-      ['진단 구간', `${CTX.meta.start}~${CTX.meta.end}년`],
-      ['급여 · 이익', '공시 급여총액 · 별도 영업이익'],
-      ['계산 규칙', '팀 산술식(formula.py) 하나', '앱 숫자와 일치 여부 자동 검사'],
-    ]))}
-    ${card('협상 구간', 'scale', 'peach', facts([
-      ['하한', '<strong>업계 인상률</strong>', '비교군 20곳 · 최근 3년 1인당 급여 연 증가율 중앙값'],
-      ['상한', '<strong>업계와 같은 부담 수준</strong>', '인상 비용 ÷ 영업이익이 비교군과 같아지는 인상률'],
-      ['상한의 의미', '감당 한도 아님 · 업계 기준선'],
-      ['표시 규칙', '10% 초과 → "10% 초과"', '비교군 대부분 적자 → "상한 산출 보류"'],
-      ['노조안·회사안', '사용자가 넣는 안 · 그래프 위 점'],
-    ]))}
-    ${card('실증 근거 · WPS 2015~2023', 'users', 'stone', `${tiles([{ k: '임금 위치 하위 20% 이직률', v: '17.8%', tone: 'peach' }, { k: '상위 20% 이직률', v: '12.7%', tone: 'amber' }])}
-      ${facts([
-        ['임금 10% ↑', '정규직 자발적 이직률 0.45%p ↓'],
-        ['1인당 급여', '급여총액 ÷ 직원수'],
-      ])}`)}
-    ${card('미래 위험', 'cloud-lightning', 'amber', facts([
-      ['적자 확률 · 범위', '노트북 6장 모델 예측'],
-      ['최악 · 최적', '모델 기준 하위 · 상위 10%'],
-      ['불황 점검', '업계가 실제 겪은 충격 재적용', `출처 확인 업황 사건 ${nEvents}건 포함`],
-    ]))}
-    ${keys(['Dart-B HR 학술제 MVP', '아이콘 Lucide (ISC)', '글꼴 Pretendard (OFL)'])}
-  </article>`;
-}
-
 // ---------------------------------------------------------------- 라우팅
 function route() {
   if (!CTX) return;
@@ -1160,13 +1123,11 @@ function route() {
   try {
     if (m && CTX.firms.has(m[1])) {
       const id = m[1];
-      LAST_FIRM = id;
       if (!m[3]) viewSummary(id);
       else if (m[3] === 'range') viewRange(id);
       else if (m[3] === 'link') viewLink(id);
       else viewRisk(id);
-    } else if (h === '/about') viewAbout();
-    else viewFind();
+    } else viewFind();
   } catch (err) {
     console.error(err);
     $view.innerHTML = `<div class="error-box callout neutral">${icon('circle-alert', 18)}<span>이 화면을 그리는 중 문제가 생겼습니다. <a href="#/">처음으로</a> 돌아가 다시 시도해 주세요.</span></div>`;
