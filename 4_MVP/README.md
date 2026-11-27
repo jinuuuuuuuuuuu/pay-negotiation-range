@@ -1,6 +1,6 @@
 # 4_MVP — 휴대폰용 에이전트 MVP (정적 웹앱)
 
-「성과급·임금」 에이전트의 기능 4개(진단 / 인상안 협상 구간 / 급여 기준 ↔ 이익 기준 환산 / 미래 위험)를 휴대폰 브라우저에서 돌리는 정적 웹앱입니다. 서버 없이 `data/*.json`을 읽고 `js/engine.js`가 계산합니다. GitHub Pages로 배포합니다(`.github/workflows/pages.yml`).
+「성과급·임금」 에이전트의 기능 4개(진단 / 인상안 협상 구간 / 급여 기준 ↔ 이익 기준 환산 / 미래 위험)를 휴대폰 브라우저에서 돌리는 정적 웹앱임. 서버 없이 `data/*.json`을 읽고 `js/engine.js`가 계산함. GitHub Pages로 배포함(`.github/workflows/pages.yml`).
 
 ## 폴더
 | 경로 | 내용 |
@@ -19,7 +19,7 @@ python make_golden.py      # tests/golden.json
 cd ..
 node tests/parity.test.mjs # "불일치 0개"가 나와야 함
 ```
-DART 패널 원자료(`Downloads/DART_패널`)가 필요합니다. WPS 원자료는 앱에 넣지 않습니다(결과의 WPS 참고값은 10곳 이상 칸의 집계뿐).
+DART 패널 원자료(`Downloads/DART_패널`)가 필요함. WPS 원자료는 앱에 넣지 않음(결과의 WPS 참고값은 10곳 이상 칸의 집계뿐).
 
 ## 로컬에서 열기
 ```
