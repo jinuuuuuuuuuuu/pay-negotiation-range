@@ -1,7 +1,4 @@
-# impeccable 작업용 캡처·시안 (공유 대상 아님). config.json, design.json, surfaces/는 커밋한다
-.impeccable/review/
-.impeccable/mocks/
-.impeccable/questions/
-.impeccable/config.local.json
+# 디자인 도구 작업 파일
+.impeccable/
 __pycache__/
 *.pyc
