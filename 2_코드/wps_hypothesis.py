@@ -306,14 +306,15 @@ def main(wps_path=None, out=None, quiet=False, dart=True):
 def dart_tenure():
     P = os.path.join(DATA, 'DART_패널', 'DART_패널_2015_2025.csv')
     E = os.path.join(DATA, '산술식_재검토', '결과', '_emp.pkl')
-    if not (os.path.exists(P) and os.path.exists(E)):
+    C = os.path.join(DATA, 'DART_보조', '공시평균급여_근속_2015_2025.csv')
+    if not (os.path.exists(P) and (os.path.exists(C) or os.path.exists(E))):
         if not QUIET:
             print('DART 보조 생략(파일 없음)')
         return
     p = pd.read_csv(P, dtype={'기업고유코드': str})
     p = p[~p['플래그_지주회사'].astype(bool) & ~p['플래그_급여이상'].astype(bool) & ~p['플래그_직원10명미만'].astype(bool)]
     p = p[p['직원수'].ge(10) & p['급여총액(원)'].gt(0)].copy()
-    e = pd.read_pickle(E)[['id', 'yr', 'ten']]
+    e = (pd.read_csv(C, dtype={'id': str}, encoding='utf-8-sig') if os.path.exists(C) else pd.read_pickle(E))[['id', 'yr', 'ten']]
     e['id'] = e['id'].astype(str)
     d = p.merge(e, left_on=['기업고유코드', '사업연도'], right_on=['id', 'yr'], how='inner')
     d = d[d.ten.between(0.3, 45)].copy()

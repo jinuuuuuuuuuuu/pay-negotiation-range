@@ -18,6 +18,8 @@ DATA = os.environ.get('HR_DATA_DIR', os.path.join(os.path.expanduser('~'), 'Down
 PANEL = os.path.join(DATA, 'DART_패널', 'DART_패널_2015_2025.csv')
 CFO_DIR = os.path.join(DATA, 'DART_재수집_20261114', '연도별_소형내보내기')     # 영업활동현금흐름 (없으면 생략)
 EMP_PKL = os.path.join(DATA, '산술식_재검토', '결과', '_emp.pkl')              # 공시 1인 평균급여 (없으면 생략)
+CFO_CSV = os.path.join(DATA, 'DART_보조', '영업현금흐름_2015_2025.csv')       # 있으면 CFO_DIR 대신 사용
+EMP_CSV = os.path.join(DATA, 'DART_보조', '공시평균급여_근속_2015_2025.csv')   # 있으면 EMP_PKL 대신 사용
 WPS_CSV = os.path.join(DATA, 'WPS_통합.csv')                                   # WPS 원자료 (공유 금지, 없으면 생략)
 OUT = os.environ.get('HR_OUT_DIR', os.path.join(DATA, '산술식_재검토', '결과_formula'))
 
@@ -32,9 +34,14 @@ def save(df, name):
 
 def load_inputs():
     panel = F.load_panel(PANEL)
-    cfo = F.load_cfo(CFO_DIR) if os.path.isdir(CFO_DIR) else None
-    emp = None
-    if os.path.exists(EMP_PKL):
+    cfo = emp = None
+    if os.path.exists(CFO_CSV):
+        cfo = pd.read_csv(CFO_CSV, encoding='utf-8-sig', dtype={'id': str})
+    elif os.path.isdir(CFO_DIR):
+        cfo = F.load_cfo(CFO_DIR)
+    if os.path.exists(EMP_CSV):
+        emp = pd.read_csv(EMP_CSV, encoding='utf-8-sig', dtype={'id': str})
+    elif os.path.exists(EMP_PKL):
         emp = pd.read_pickle(EMP_PKL)
         emp['id'] = emp['id'].astype(str)
     wps = None

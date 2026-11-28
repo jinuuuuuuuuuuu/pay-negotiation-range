@@ -9,7 +9,7 @@ node_modules/
 # Design tool working files
 .impeccable/
 
-# Local data that must not be shared (WPS raw data is under terms of use; DART panel is large)
+# Local data that must not be shared (WPS raw data is under terms of use)
 WPS*.csv
 DART_패널/
 *.pkl
@@ -24,3 +24,12 @@ Thumbs.db
 .env
 .env.*
 *.pem
+
+# 저장소에 포함하는 파일
+!0_데이터/DART_패널/
+!0_데이터/DART_패널/**
+!3_결과/3_산술식/WPS기준값_대분류x직원구간.csv
+!2_코드/수집/.env.example
+
+# 산술식 실행 출력
+0_데이터/산술식_재검토/
