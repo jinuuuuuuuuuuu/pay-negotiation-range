@@ -171,5 +171,3 @@ export HR_DATA_DIR=../0_데이터     # PowerShell: $env:HR_DATA_DIR="../0_데�
 python run_산술식.py
 python -m pytest tests -q
 ```
-
-팀원용 수정 방법과 주의사항은 [CONTRIBUTING.md](CONTRIBUTING.md)에 있음
