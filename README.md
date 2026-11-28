@@ -9,7 +9,9 @@
 데이터분석 학회 DArt-B HR 학술제 · 6인 팀
 
 [앱 열어 보기](https://jinuuuuuuuuuuu.github.io/pay-negotiation-range/) (휴대폰 화면 기준) · [발표 자료](1_문서/발표자료.pdf)
-<img width="530" height="273" alt="image" src="https://github.com/user-attachments/assets/32ad3fdc-7403-4f60-8518-fffc7febf8c9" />
+
+<img width="1748" height="900" alt="노사랑 앱 로고와 임금 데이터 안내" src="https://github.com/user-attachments/assets/73a378be-211c-44fd-afe4-e1c4129efd09" />
+
 
 
 </div>
